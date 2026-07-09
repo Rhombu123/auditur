@@ -24,3 +24,13 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.vin-scanner video {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+.vin-scanner img {
+  display: none;
+}
