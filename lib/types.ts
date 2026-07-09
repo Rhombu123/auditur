@@ -1,9 +1,15 @@
 export type InventoryItem = {
+  id?: string;
   vinSuffix: string;
   model: string;
   color: string;
   daysOnLot: number | null;
+  miles?: number | null;
+  year?: number | null;
+  lotStatus?: LotStatus;
 };
+
+export type LotStatus = "active" | "sold" | "auctioned";
 
 export type InventorySnapshot = {
   fileName: string;
@@ -21,6 +27,21 @@ export type ScanRecord = {
   accuracy: number | null;
   matchedItem: InventoryItem | null;
   rawValue: string;
+};
+
+export type LotVehicle = {
+  id: string;
+  vinSuffix: string;
+  model: string;
+  color: string;
+  daysOnLot: number | null;
+  miles: number | null;
+  year: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  lastScannedAt: string | null;
+  scannedToday: boolean;
+  lotStatus: LotStatus;
 };
 
 export type ParseResult = {

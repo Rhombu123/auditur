@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
 
+import { saveInventorySnapshot } from "@/lib/db/inventory";
 import { extractPdfText } from "@/lib/extract-pdf-text";
 import { parseInventoryText } from "@/lib/parse-inventory";
 
 export const runtime = "nodejs";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
+function isPdfFile(file: File): boolean {
+  const normalizedName = file.name.toLowerCase();
+  const normalizedType = file.type.toLowerCase();
+
+  return (
+    normalizedName.endsWith(".pdf") ||
+    normalizedType === "application/pdf" ||
+    normalizedType === "application/octet-stream" ||
+    normalizedType === "application/x-pdf" ||
+    normalizedType === "binary/octet-stream" ||
+    normalizedType === ""
+  );
+}
 
 export async function POST(request: Request) {
   try {
@@ -19,7 +34,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    if (!isPdfFile(file)) {
       return NextResponse.json(
         { error: "Only PDF files are supported." },
         { status: 400 },
@@ -29,6 +44,13 @@ export async function POST(request: Request) {
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return NextResponse.json(
         { error: "File is too large. Maximum size is 10 MB." },
+        { status: 400 },
+      );
+    }
+
+    if (file.size === 0) {
+      return NextResponse.json(
+        { error: "The selected file is empty." },
         { status: 400 },
       );
     }
@@ -49,10 +71,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const inventory = await saveInventorySnapshot(file.name, result.items);
+
     return NextResponse.json({
-      fileName: file.name,
-      itemCount: result.items.length,
-      items: result.items,
+      fileName: inventory.fileName,
+      uploadedAt: inventory.uploadedAt,
+      itemCount: inventory.items.length,
+      items: inventory.items,
       totalLines: result.totalLines,
     });
   } catch (error) {

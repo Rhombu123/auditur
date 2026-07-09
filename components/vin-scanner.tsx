@@ -7,7 +7,7 @@ import {
 } from "html5-qrcode";
 
 import { getCurrentLocation, mapsUrl } from "@/lib/geolocation";
-import { matchInventoryItem, saveScan } from "@/lib/storage";
+import { matchInventoryItem, saveScanToServer } from "@/lib/api-client";
 import type { ScanRecord } from "@/lib/types";
 import { extractVin, extractVinSuffix, formatVin } from "@/lib/vin";
 
@@ -89,21 +89,18 @@ export function VinScanner({ onScan }: VinScannerProps) {
 
         const vin = extractVin(rawValue);
         const position = await getCurrentLocation();
-        const { matchedItem } = matchInventoryItem(vinSuffix);
+        const { matchedItem } = await matchInventoryItem(vinSuffix);
 
-        const record: ScanRecord = {
-          id: crypto.randomUUID(),
+        const record = await saveScanToServer({
           vin: vin ? formatVin(vin) : null,
           vinSuffix,
-          scannedAt: new Date().toISOString(),
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
           matchedItem,
           rawValue,
-        };
+        });
 
-        saveScan(record);
         setLatestScan(record);
         onScan?.(record);
         setStatus("scanning");

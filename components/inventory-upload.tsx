@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { InventoryItem } from "@/lib/types";
-import { loadInventory, saveInventory } from "@/lib/storage";
+import { fetchInventory } from "@/lib/api-client";
 
 type UploadResponse = {
   fileName: string;
@@ -57,11 +57,19 @@ export function InventoryUpload() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    const saved = loadInventory();
-    if (saved) {
-      setFileName(saved.fileName);
-      setItems(saved.items);
+    async function loadSavedInventory() {
+      try {
+        const saved = await fetchInventory();
+        if (saved) {
+          setFileName(saved.fileName);
+          setItems(saved.items);
+        }
+      } catch {
+        // Inventory may not exist yet on first visit.
+      }
     }
+
+    void loadSavedInventory();
   }, []);
 
   const filteredItems = useMemo(() => {
@@ -101,11 +109,6 @@ export function InventoryUpload() {
       setFileName(success.fileName);
       setItems(success.items);
       setSearch("");
-      saveInventory({
-        fileName: success.fileName,
-        uploadedAt: new Date().toISOString(),
-        items: success.items,
-      });
     } catch (uploadError) {
       setItems([]);
       setFileName(null);
@@ -186,7 +189,7 @@ export function InventoryUpload() {
             <p className="text-lg font-medium text-zinc-900">
               Drop your inventory PDF here
             </p>
-            <p className="text-sm text-zinc-500">PDF only, up to 10 MB</p>
+            <p className="text-sm text-zinc-500">PDF only, up to 10 MB. Works from Files on iPhone and Android.</p>
           </div>
 
           <button
@@ -201,7 +204,7 @@ export function InventoryUpload() {
           <input
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,.pdf,application/octet-stream"
             className="hidden"
             onChange={onInputChange}
           />

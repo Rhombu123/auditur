@@ -4,26 +4,40 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { VinScanner } from "@/components/vin-scanner";
+import { clearScansOnServer, fetchInventory, fetchScans } from "@/lib/api-client";
 import { mapsUrl } from "@/lib/geolocation";
-import { clearScans, loadInventory, loadScans } from "@/lib/storage";
 import type { ScanRecord } from "@/lib/types";
 
 export function ScanPage() {
   const [inventoryCount, setInventoryCount] = useState(0);
   const [scans, setScans] = useState<ScanRecord[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    const inventory = loadInventory();
-    setInventoryCount(inventory?.items.length ?? 0);
-    setScans(loadScans());
+    async function loadData() {
+      try {
+        const [inventory, scanRecords] = await Promise.all([
+          fetchInventory(),
+          fetchScans(),
+        ]);
+        setInventoryCount(inventory?.items.length ?? 0);
+        setScans(scanRecords);
+      } catch (error) {
+        setLoadError(
+          error instanceof Error ? error.message : "Failed to load scan data.",
+        );
+      }
+    }
+
+    void loadData();
   }, []);
 
   const onScan = useCallback((record: ScanRecord) => {
     setScans((current) => [record, ...current.filter((item) => item.id !== record.id)]);
   }, []);
 
-  function handleClearScans() {
-    clearScans();
+  async function handleClearScans() {
+    await clearScansOnServer();
     setScans([]);
   }
 
@@ -41,6 +55,12 @@ export function ScanPage() {
           automatically capture GPS coordinates for the pin.
         </p>
       </header>
+
+      {loadError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      ) : null}
 
       {inventoryCount === 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -64,7 +84,7 @@ export function ScanPage() {
             <h2 className="text-lg font-semibold text-zinc-950">Recent Pins</h2>
             <button
               type="button"
-              onClick={handleClearScans}
+              onClick={() => void handleClearScans()}
               className="text-sm font-medium text-zinc-500 hover:text-zinc-800"
             >
               Clear

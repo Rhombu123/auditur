@@ -1,6 +1,26 @@
 import type { InventoryItem, ParseResult } from "./types";
 
-const VIN_SUFFIX_PATTERN = /\b[A-HJ-NPR-Z0-9]{6}\b/gi;
+const PRICE_LIST_HEADER = /VIN6|MILES ON LOT|PRICE\s*LIST/i;
+const VEHICLE_LINE_PATTERN = /^(\d{2})\s+(.+)$/;
+
+const TRUNCATED_COLORS: Record<string, string> = {
+  SILVE: "Silver",
+  ORANG: "Orange",
+  GRA: "Gray",
+  GRE: "Gray",
+  BLAC: "Black",
+  WHIT: "White",
+  BLU: "Blue",
+  RED: "Red",
+  GREE: "Green",
+  YELL: "Yellow",
+  BROW: "Brown",
+  BEIG: "Beige",
+  GOLD: "Gold",
+  CHAR: "Charcoal",
+  BURG: "Burgundy",
+  PURP: "Purple",
+};
 
 const COLOR_NAMES = [
   "Crystal White Pearl",
@@ -27,7 +47,6 @@ const COLOR_NAMES = [
   "Maroon",
   "Bronze",
   "Copper",
-  "Champagne",
   "Beige",
   "Tan",
   "Brown",
@@ -49,6 +68,8 @@ const COLOR_NAMES = [
 const HEADER_PATTERN =
   /\b(?:vin|stock|model|color|days|inventory|vehicle|description|mileage|year|make)\b/gi;
 
+const VIN_SUFFIX_PATTERN = /\b[A-HJ-NPR-Z0-9]{6}\b/gi;
+
 const DAYS_PATTERN =
   /\b(\d{1,4})\s*(?:days?\s+on\s+lot|dol)\b|(?:\bdol[:\s]*)(\d{1,4})\b/i;
 
@@ -57,6 +78,16 @@ const YEAR_MODEL_PATTERN =
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeColor(color: string): string {
+  const upper = color.toUpperCase();
+  if (TRUNCATED_COLORS[upper]) {
+    return TRUNCATED_COLORS[upper];
+  }
+
+  const full = findColor(color);
+  return full ?? color.charAt(0).toUpperCase() + color.slice(1).toLowerCase();
 }
 
 function isLikelyHeader(line: string): boolean {
@@ -136,6 +167,58 @@ function parseLine(line: string, vinSuffix: string): InventoryItem {
   };
 }
 
+function parsePriceListLine(line: string): InventoryItem | null {
+  const match = line.match(VEHICLE_LINE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const remainder = match[2].trim();
+  const tokens = remainder.split(/\s+/);
+  if (tokens.length < 3) {
+    return null;
+  }
+
+  const daysOnLot = Number(tokens.at(-1)?.replace(/,/g, ""));
+  if (Number.isNaN(daysOnLot)) {
+    return null;
+  }
+
+  const milesToken = tokens.at(-2)?.replace(/,/g, "") ?? "";
+  const miles = /^\d+$/.test(milesToken) ? Number(milesToken) : null;
+
+  const vinSuffix = (tokens.at(-3) ?? "").toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(vinSuffix)) {
+    return null;
+  }
+
+  const beforeVin = tokens.slice(0, -3);
+  let color = "Unknown";
+  let modelTokens = beforeVin;
+
+  if (beforeVin.length > 0) {
+    const lastToken = beforeVin.at(-1) ?? "";
+    if (/^[A-Z]{3,6}$/i.test(lastToken) && !/^\d+$/.test(lastToken)) {
+      color = normalizeColor(lastToken);
+      modelTokens = beforeVin.slice(0, -1);
+    }
+  }
+
+  const model = normalizeWhitespace(
+    `${year + (year >= 70 ? 1900 : 2000)} ${modelTokens.join(" ")}`,
+  );
+
+  return {
+    vinSuffix,
+    model: model || "Unknown",
+    color,
+    daysOnLot,
+    miles,
+    year: year + (year >= 70 ? 1900 : 2000),
+  };
+}
+
 function mergeItems(items: InventoryItem[]): InventoryItem[] {
   const byVin = new Map<string, InventoryItem>();
 
@@ -151,6 +234,8 @@ function mergeItems(items: InventoryItem[]): InventoryItem[] {
       model: existing.model === "Unknown" ? item.model : existing.model,
       color: existing.color === "Unknown" ? item.color : existing.color,
       daysOnLot: existing.daysOnLot ?? item.daysOnLot,
+      miles: existing.miles ?? item.miles,
+      year: existing.year ?? item.year,
     });
   }
 
@@ -159,7 +244,7 @@ function mergeItems(items: InventoryItem[]): InventoryItem[] {
   );
 }
 
-export function parseInventoryText(text: string): ParseResult {
+function parseGenericInventoryText(text: string): InventoryItem[] {
   const lines = text
     .split(/\r?\n/)
     .map((line) => normalizeWhitespace(line))
@@ -177,19 +262,52 @@ export function parseInventoryText(text: string): ParseResult {
       continue;
     }
 
-    for (const match of matches) {
-      const vinSuffix = match[0];
-      if (/^\d{6}$/.test(vinSuffix) && Number(vinSuffix) < 100000) {
-        continue;
-      }
-
+    for (const vinMatch of matches) {
+      const vinSuffix = vinMatch[0];
       items.push(parseLine(line, vinSuffix));
     }
   }
 
+  return items;
+}
+
+function parsePriceListText(text: string): InventoryItem[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+
+  const items: InventoryItem[] = [];
+
+  for (const line of lines) {
+    if (
+      line.startsWith("Page:") ||
+      line.startsWith("Report:") ||
+      line.startsWith("--") ||
+      line.includes("-----") ||
+      /^DAYS$/i.test(line)
+    ) {
+      continue;
+    }
+
+    const item = parsePriceListLine(line);
+    if (item) {
+      items.push(item);
+    }
+  }
+
+  return items;
+}
+
+export function parseInventoryText(text: string): ParseResult {
+  const isPriceList = PRICE_LIST_HEADER.test(text);
+  const items = mergeItems(
+    isPriceList ? parsePriceListText(text) : parseGenericInventoryText(text),
+  );
+
   return {
-    items: mergeItems(items),
+    items,
     rawTextPreview: text.slice(0, 500),
-    totalLines: lines.length,
+    totalLines: text.split(/\r?\n/).filter(Boolean).length,
   };
 }
