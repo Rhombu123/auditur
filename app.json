@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Auditur",
+    "slug": "auditur",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "auditur",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D9488"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.auditur.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Auditur scans VIN barcodes on vehicles.",
+        "NSLocationWhenInUseUsageDescription": "Auditur pins scanned vehicles to your current GPS location on the lot."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0D9488"
+      },
+      "package": "com.auditur.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Auditur to scan VIN barcodes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Auditur to capture GPS when you scan a vehicle."
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

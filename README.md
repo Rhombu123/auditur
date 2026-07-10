@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Auditur
 
-## Getting Started
+Mobile inventory auditing app for dealership lots. Upload a price-list PDF, scan VIN barcodes with your phone camera, and pin vehicles on a map with GPS.
 
-First, run the development server:
+Built with **Expo** (React Native) — run on your phone via Expo Go and a QR code.
+
+## Quick start
+
+1. Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy env vars:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Fill in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` from your [Supabase](https://supabase.com) project.
 
-## Learn More
+3. Start the dev server:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx expo start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+4. Scan the QR code with **Expo Go** on your iPhone or Android device.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+> Camera and GPS require a physical device — they won't work in the simulator alone.
 
-## Deploy on Vercel
+## App tabs
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Tab | What it does |
+|-----|--------------|
+| **Upload** | Pick a dealership PDF; vehicles are parsed and saved to Supabase |
+| **Scan** | Scan VIN barcodes; captures GPS and matches against inventory |
+| **Map** | View pinned vehicles; mark sold or auctioned |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## PDF upload API
+
+PDF parsing runs server-side (Node) because `pdf-parse` can't run on mobile. The app posts to `EXPO_PUBLIC_UPLOAD_API_URL`, which defaults to the Vercel serverless function at `/api/upload`.
+
+Deploy the API to Vercel with these env vars:
+
+- `NEXT_PUBLIC_SUPABASE_URL` or `EXPO_PUBLIC_SUPABASE_URL`
+- `SUPABASE_ANON_KEY` (or `SUPABASE_SERVICE_ROLE_KEY` for writes)
+
+## Supabase tables
+
+- `inventory_uploads` — PDF upload metadata
+- `inventory_items` — parsed vehicles (`lot_status`: active / sold / auctioned)
+- `vehicle_scans` — VIN scans with GPS coordinates
