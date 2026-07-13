@@ -10,12 +10,20 @@ const repoRoot = path.resolve(websiteRoot, "..");
 loadEnvConfig(repoRoot);
 loadEnvConfig(websiteRoot);
 
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
-  process.env.SUPABASE_ANON_KEY;
+function pickEnv(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+const supabaseUrl = pickEnv("NEXT_PUBLIC_SUPABASE_URL", "EXPO_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = pickEnv(
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "EXPO_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_ANON_KEY",
+);
 
 const nextConfig: NextConfig = {
   output: "export",

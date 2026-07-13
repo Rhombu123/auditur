@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 5173",
     "dev:clean": "rm -rf .next && next dev --port 5173",
-    "build": "next build && node scripts/copy-to-public.mjs",
+    "build": "node scripts/verify-env.mjs && next build && node scripts/copy-to-public.mjs",
     "start": "next start"
   },
   "dependencies": {
