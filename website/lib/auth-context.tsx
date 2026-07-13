@@ -11,6 +11,11 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  ADMIN_EMAIL,
+  clearAdminBypass,
+  isAdminBypassActive,
+} from "@/lib/admin-access";
 import { getMagicLinkRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
 import {
   clearWebSessionMarker,
@@ -21,10 +26,20 @@ import {
 import { formatAuthError, normalizeEmail } from "@/lib/email-auth";
 import { assertSupabaseConfigured, supabase } from "@/lib/supabase-browser";
 
+const ADMIN_USER = {
+  id: "auditur-admin-bypass",
+  email: ADMIN_EMAIL,
+  user_metadata: { full_name: "Admin" },
+  app_metadata: { provider: "admin_bypass", role: "admin" },
+  aud: "authenticated",
+  created_at: "",
+} as unknown as User;
+
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  isAdminBypass: boolean;
   sendSignInLink: (
     email: string,
     mode: "login" | "signup",
@@ -46,10 +61,19 @@ async function enforceSessionExpiry(): Promise<boolean> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [adminBypass, setAdminBypass] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function initSession() {
+      if (isAdminBypassActive()) {
+        setAdminBypass(true);
+        if (!getWebSessionExpiresAt()) markWebSessionStarted();
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+
       const { data } = await supabase.auth.getSession();
 
       if (data.session) {
@@ -70,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (event, next) => {
       if (event === "SIGNED_IN") {
+        clearAdminBypass();
+        setAdminBypass(false);
         markWebSessionStarted();
       }
 
@@ -92,6 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const expiryTimer = window.setInterval(() => {
       void (async () => {
+        if (isAdminBypassActive()) {
+          if (!isWebSessionValid()) {
+            clearAdminBypass();
+            clearWebSessionMarker();
+            setAdminBypass(false);
+          }
+          return;
+        }
         const { data } = await supabase.auth.getSession();
         if (!data.session) return;
         if (!(await enforceSessionExpiry())) {
@@ -119,7 +153,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         storePendingFullName(options.fullName);
       }
 
-      // Magic link → verify on /auth/confirm/ → redirect back to returnTo (previous page).
       const { error } = await supabase.auth.signInWithOtp({
         email: normalized,
         options: {
@@ -135,6 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    clearAdminBypass();
+    setAdminBypass(false);
     clearWebSessionMarker();
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
@@ -142,13 +177,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      session,
-      user: session?.user ?? null,
+      session: adminBypass ? ({ user: ADMIN_USER } as Session) : session,
+      user: adminBypass ? ADMIN_USER : (session?.user ?? null),
       loading,
+      isAdminBypass: adminBypass,
       sendSignInLink,
       signOut,
     }),
-    [session, loading, sendSignInLink, signOut],
+    [session, adminBypass, loading, sendSignInLink, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

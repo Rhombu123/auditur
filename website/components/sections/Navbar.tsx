@@ -50,7 +50,7 @@ export function Navbar() {
       </nav>
 
       <motion.a
-        href="/login"
+        href="/login/?next=%2Fdashboard%2F"
         className="nav-cta"
         whileHover={{ scale: 1.03, y: -1 }}
         whileTap={{ scale: 0.98 }}

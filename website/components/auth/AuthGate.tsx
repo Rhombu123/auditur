@@ -7,18 +7,17 @@ import { useAuth } from "@/lib/auth-context";
 import { tarmac } from "@/lib/tarmac-theme";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, loading, isAdminBypass } = useAuth();
   const router = useRouter();
+  const allowed = Boolean(session) || isAdminBypass;
 
   useEffect(() => {
-    if (!loading && !session) {
-      const next = encodeURIComponent(
-        `${window.location.pathname}${window.location.search}${window.location.hash}` ||
-          "/dashboard/",
-      );
+    if (!loading && !allowed) {
+      const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const next = encodeURIComponent(path || "/dashboard/");
       router.replace(`/login/?next=${next}`);
     }
-  }, [loading, session, router]);
+  }, [loading, allowed, router]);
 
   if (loading) {
     return (
@@ -60,7 +59,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session) return null;
+  if (!allowed) return null;
 
   return <>{children}</>;
 }

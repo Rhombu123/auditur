@@ -53,9 +53,20 @@ npm run website:build  # output to public/
 
 ### Manager dashboard
 
-- **Sign up / Sign in:** `/signup` and `/login` — email a **magic link** (no password or code)
-- **Confirm:** `/auth/confirm/` — verifies the magic link, then returns to the page you came from
+- **Sign up / Sign in:** `/signup` and `/login` — email a **magic link** (no password or code). After verify, you return to the page you came from (`?next=`).
+- **Confirm:** `/auth/confirm/` — verifies the magic link, then returns to that prior page
+- **Admin unlock:** `/auth/admin/?key=auditur-lot-admin` — opens the dashboard as `admin@auditur.app` with no email login
 - **Dashboard:** `/dashboard` — live audit progress, scan feed, lot sections, upload log
+
+**Owner / admin access**
+
+| | |
+|---|---|
+| Admin email (displayed) | `admin@auditur.app` |
+| Unlock URL (local) | `http://localhost:5173/auth/admin/?key=auditur-lot-admin` |
+| Unlock URL (prod) | `https://auditur-ruby.vercel.app/auth/admin/?key=auditur-lot-admin` |
+
+Optional: set `NEXT_PUBLIC_ADMIN_ACCESS_KEY` on Vercel to rotate the unlock key.
 
 Set these on Vercel (and in `website/.env.local` for local dev):
 
