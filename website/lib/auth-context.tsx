@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { getEmailConfirmRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
+import { getMagicLinkRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
 import {
   clearWebSessionMarker,
   getWebSessionExpiresAt,
@@ -25,7 +25,11 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  sendSignInLink: (email: string, mode: "login" | "signup", fullName?: string) => Promise<void>;
+  sendSignInLink: (
+    email: string,
+    mode: "login" | "signup",
+    options?: { fullName?: string; returnTo?: string },
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -103,24 +107,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendSignInLink = useCallback(
-    async (email: string, mode: "login" | "signup", fullName?: string) => {
+    async (
+      email: string,
+      mode: "login" | "signup",
+      options?: { fullName?: string; returnTo?: string },
+    ) => {
       assertSupabaseConfigured();
       const normalized = normalizeEmail(email);
 
-      if (mode === "signup" && fullName?.trim()) {
-        storePendingFullName(fullName);
+      if (mode === "signup" && options?.fullName?.trim()) {
+        storePendingFullName(options.fullName);
       }
 
-      // Sends a Confirm sign-in email (ConfirmationURL). User clicks Confirm → /auth/confirm/
+      // Magic link → verify on /auth/confirm/ → redirect back to returnTo (previous page).
       const { error } = await supabase.auth.signInWithOtp({
         email: normalized,
         options: {
           shouldCreateUser: mode === "signup",
-          emailRedirectTo: getEmailConfirmRedirectTo(),
+          emailRedirectTo: getMagicLinkRedirectTo(options?.returnTo),
         },
       });
       if (error) {
-        throw new Error(formatAuthError(error, "Could not send sign-in email."));
+        throw new Error(formatAuthError(error, "Could not send magic link."));
       }
     },
     [],

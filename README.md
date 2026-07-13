@@ -53,8 +53,8 @@ npm run website:build  # output to public/
 
 ### Manager dashboard
 
-- **Sign up / Sign in:** `/signup` and `/login` — email a **Confirm sign in** link (no 6-digit code)
-- **Confirm:** `/auth/confirm/` — finishes sign-in after the email link is clicked
+- **Sign up / Sign in:** `/signup` and `/login` — email a **magic link** (no password or code)
+- **Confirm:** `/auth/confirm/` — verifies the magic link, then returns to the page you came from
 - **Dashboard:** `/dashboard` — live audit progress, scan feed, lot sections, upload log
 
 Set these on Vercel (and in `website/.env.local` for local dev):
@@ -62,12 +62,11 @@ Set these on Vercel (and in `website/.env.local` for local dev):
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-**Email: Confirm link (not OTP code)** — in Supabase → Authentication → Email Templates → **Magic Link**, use `{{ .ConfirmationURL }}` (and not `{{ .Token }}`). Example:
+**Email: magic link** — in Supabase → Authentication → Email Templates → **Magic Link**, use `{{ .ConfirmationURL }}` (not `{{ .Token }}`). Example:
 
 ```html
-<h2>Confirm your Auditur sign-in</h2>
-<p>Click below to finish signing in:</p>
-<p><a href="{{ .ConfirmationURL }}">Confirm sign in</a></p>
+<h2>Sign in to Auditur</h2>
+<p><a href="{{ .ConfirmationURL }}">Open magic link</a></p>
 ```
 
 **Production URLs** — in Supabase → Authentication → URL Configuration:

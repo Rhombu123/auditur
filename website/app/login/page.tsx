@@ -1,22 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
 import { EmailAuthForm } from "@/components/auth/EmailAuthForm";
 import { useAuth } from "@/lib/auth-context";
+import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
-export default function LoginPage() {
+function LoginContent() {
   const { session, loading, sendSignInLink } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = sanitizeReturnTo(searchParams.get("next"));
 
   useEffect(() => {
     if (!loading && session) {
-      router.replace("/dashboard/");
+      router.replace(returnTo);
     }
-  }, [loading, session, router]);
+  }, [loading, session, router, returnTo]);
 
   if (loading) return <AuthLoading />;
   if (session) return null;
@@ -24,18 +27,26 @@ export default function LoginPage() {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Sign in with the email you use on the Auditur mobile app. We'll email a Confirm link — no password or code."
+      subtitle="Enter your email and we'll send a magic link. Open it on this device to verify and return here — no password or code."
       footer={
         <>
           Don&apos;t have an account?{" "}
-          <Link href="/signup/">Create one for free</Link>
+          <Link href={`/signup/?next=${encodeURIComponent(returnTo)}`}>Create one for free</Link>
         </>
       }
     >
       <EmailAuthForm
         mode="login"
-        onSendLink={(email) => sendSignInLink(email, "login")}
+        onSendLink={(email) => sendSignInLink(email, "login", { returnTo })}
       />
     </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<AuthLoading />}>
+      <LoginContent />
+    </Suspense>
   );
 }

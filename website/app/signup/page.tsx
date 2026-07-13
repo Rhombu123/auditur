@@ -1,22 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
 import { EmailAuthForm } from "@/components/auth/EmailAuthForm";
 import { useAuth } from "@/lib/auth-context";
+import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
-export default function SignupPage() {
+function SignupContent() {
   const { session, loading, sendSignInLink } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = sanitizeReturnTo(searchParams.get("next"));
 
   useEffect(() => {
     if (!loading && session) {
-      router.replace("/dashboard/");
+      router.replace(returnTo);
     }
-  }, [loading, session, router]);
+  }, [loading, session, router, returnTo]);
 
   if (loading) return <AuthLoading />;
   if (session) return null;
@@ -24,17 +27,28 @@ export default function SignupPage() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Get a web command center for your lot — live scans, audit progress, and upload history from your team."
+      subtitle="Get a web command center for your lot. We'll email a magic link to verify you — no password or code."
       footer={
         <>
-          Already registered? <Link href="/login/">Sign in</Link>
+          Already registered?{" "}
+          <Link href={`/login/?next=${encodeURIComponent(returnTo)}`}>Sign in</Link>
         </>
       }
     >
       <EmailAuthForm
         mode="signup"
-        onSendLink={(email, fullName) => sendSignInLink(email, "signup", fullName)}
+        onSendLink={(email, fullName) =>
+          sendSignInLink(email, "signup", { fullName, returnTo })
+        }
       />
     </AuthShell>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<AuthLoading />}>
+      <SignupContent />
+    </Suspense>
   );
 }

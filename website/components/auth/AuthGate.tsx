@@ -12,7 +12,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !session) {
-      router.replace("/login");
+      const next = encodeURIComponent(
+        `${window.location.pathname}${window.location.search}${window.location.hash}` ||
+          "/dashboard/",
+      );
+      router.replace(`/login/?next=${next}`);
     }
   }, [loading, session, router]);
 

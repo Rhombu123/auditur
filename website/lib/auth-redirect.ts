@@ -1,4 +1,6 @@
 const PENDING_NAME_KEY = "auditur_pending_full_name";
+const RETURN_TO_KEY = "auditur_auth_return_to";
+const DEFAULT_RETURN_TO = "/dashboard/";
 
 export function getAuthSiteOrigin(): string {
   if (typeof window !== "undefined" && window.location.origin) {
@@ -7,9 +9,46 @@ export function getAuthSiteOrigin(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "https://auditur-ruby.vercel.app";
 }
 
-/** Where Supabase should send the user after they click Confirm in email. */
-export function getEmailConfirmRedirectTo(): string {
-  return `${getAuthSiteOrigin()}/auth/confirm/`;
+/** Only allow same-site relative paths (blocks open redirects). */
+export function sanitizeReturnTo(path: string | null | undefined): string {
+  if (!path) return DEFAULT_RETURN_TO;
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return DEFAULT_RETURN_TO;
+  if (trimmed.includes("://")) return DEFAULT_RETURN_TO;
+
+  const pathOnly = trimmed.split(/[?#]/)[0] ?? trimmed;
+  if (
+    pathOnly.startsWith("/login") ||
+    pathOnly.startsWith("/signup") ||
+    pathOnly.startsWith("/auth/")
+  ) {
+    return DEFAULT_RETURN_TO;
+  }
+
+  if (trimmed.includes("?") || trimmed.includes("#")) {
+    return trimmed;
+  }
+
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+}
+
+export function storeReturnTo(path: string): void {
+  localStorage.setItem(RETURN_TO_KEY, sanitizeReturnTo(path));
+}
+
+export function consumeReturnTo(): string {
+  const stored = localStorage.getItem(RETURN_TO_KEY);
+  localStorage.removeItem(RETURN_TO_KEY);
+  return sanitizeReturnTo(stored);
+}
+
+/** Magic-link landing URL; includes `next` so verify can restore the prior page. */
+export function getMagicLinkRedirectTo(returnTo?: string): string {
+  const next = sanitizeReturnTo(returnTo);
+  storeReturnTo(next);
+  const url = new URL(`${getAuthSiteOrigin()}/auth/confirm/`);
+  url.searchParams.set("next", next);
+  return url.toString();
 }
 
 export function storePendingFullName(fullName: string): void {

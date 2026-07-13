@@ -116,8 +116,8 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
             transition={{ duration: 0.25 }}
           >
             <p className="auth-hint">
-              Check <strong>{email}</strong> and click <strong>Confirm sign in</strong> in
-              the email. That opens Auditur and finishes signing you in — no code needed.
+              Check <strong>{email}</strong> and open the <strong>magic link</strong> in
+              that email. It verifies your sign-in and brings you back to where you left off.
             </p>
 
             <button
@@ -126,7 +126,7 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
               onClick={() => void handleSend()}
               disabled={loading}
             >
-              {loading ? "Sending…" : "Resend email"}
+              {loading ? "Sending…" : "Resend magic link"}
             </button>
             <button
               type="button"

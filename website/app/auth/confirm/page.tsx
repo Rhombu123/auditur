@@ -6,7 +6,11 @@ import { useEffect, useState } from "react";
 
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
 import "@/components/auth/auth.css";
-import { applyPendingFullName } from "@/lib/auth-redirect";
+import {
+  applyPendingFullName,
+  consumeReturnTo,
+  sanitizeReturnTo,
+} from "@/lib/auth-redirect";
 import { markWebSessionStarted } from "@/lib/auth-session";
 import { formatAuthError } from "@/lib/email-auth";
 import { assertSupabaseConfigured, supabase } from "@/lib/supabase-browser";
@@ -35,12 +39,11 @@ export default function AuthConfirmPage() {
           });
           if (verifyError) throw verifyError;
         } else {
-          // Implicit/hash redirect — session may already be in the URL fragment.
           const { data, error: sessionError } = await supabase.auth.getSession();
           if (sessionError) throw sessionError;
           if (!data.session) {
             throw new Error(
-              "Missing sign-in confirmation. Open the Confirm link from your email again.",
+              "Missing magic link session. Open the sign-in link from your email again.",
             );
           }
         }
@@ -50,14 +53,16 @@ export default function AuthConfirmPage() {
         });
 
         markWebSessionStarted();
-        router.replace("/dashboard/");
+        const fromQuery = params.get("next");
+        const returnTo = fromQuery ? sanitizeReturnTo(fromQuery) : consumeReturnTo();
+        router.replace(returnTo);
       } catch (confirmError) {
         setError(
           formatAuthError(
             confirmError,
             confirmError instanceof Error
               ? confirmError.message
-              : "Could not confirm sign-in.",
+              : "Could not verify magic link.",
           ),
         );
       }
@@ -69,7 +74,7 @@ export default function AuthConfirmPage() {
   if (error) {
     return (
       <AuthShell
-        title="Could not confirm"
+        title="Could not sign in"
         subtitle={error}
         footer={
           <>
