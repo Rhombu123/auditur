@@ -62,6 +62,21 @@ Set these on Vercel (and in `website/.env.local` for local dev):
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+**Email: code only (no magic link)** — in Supabase → Authentication → Email Templates → **Magic Link**, replace the body so it uses `{{ .Token }}` and remove any `{{ .ConfirmationURL }}` link. Example:
+
+```html
+<h2>Your Auditur sign-in code</h2>
+<p>Enter this 6-digit code on the login page:</p>
+<p><strong>{{ .Token }}</strong></p>
+```
+
+**Production URLs** — in Supabase → Authentication → URL Configuration:
+
+- Site URL: `https://auditur-ruby.vercel.app`
+- Redirect URLs: `https://auditur-ruby.vercel.app/**`
+
+After changing Vercel env vars, **redeploy** (static export bakes env at build time).
+
 Deploy with `npm run build:website` via `vercel.json` — API routes remain at `/api/*`.
 
 

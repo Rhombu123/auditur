@@ -105,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sendEmailCode = useCallback(async (email: string, mode: "login" | "signup") => {
     assertSupabaseConfigured();
     const normalized = normalizeEmail(email);
+    // Do not pass emailRedirectTo — that sends a clickable magic link in the email.
+    // Supabase sends a 6-digit code when the Magic Link template uses {{ .Token }} only.
     const { error } = await supabase.auth.signInWithOtp({
       email: normalized,
       options: { shouldCreateUser: mode === "signup" },
