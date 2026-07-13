@@ -3,10 +3,10 @@
 # Installed fresh on Vercel
 node_modules
 
-# Native / mobile
-app
-components
-assets
+# Native / mobile (root only — do not match website/src/components)
+/app
+/components
+/assets
 ios
 android
 .expo

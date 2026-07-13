@@ -44,7 +44,7 @@ PDF parsing runs server-side (Node) via `docutext` — it never runs on the phon
 
 ## Marketing website
 
-The landing page lives in `website/` (Vite + React + Framer Motion) and builds into `public/` on deploy.
+The landing page lives in `website/` (Next.js + Framer Motion) and builds into `public/` on deploy.
 
 ```bash
 npm run website:dev    # local preview at http://localhost:5173
