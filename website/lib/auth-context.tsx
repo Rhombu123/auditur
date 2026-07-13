@@ -76,6 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (isAdminBypassActive()) {
         setAdminBypass(true);
+        const { enableDemoLot } = await import("@/lib/demo-store");
+        enableDemoLot();
         if (!getWebSessionExpiresAt()) markWebSessionStarted();
         setSession(null);
         setLoading(false);
@@ -165,6 +167,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!enableAdminBypass()) {
           throw new Error("Could not enable local admin access.");
         }
+        const { enableDemoLot } = await import("@/lib/demo-store");
+        enableDemoLot();
         markWebSessionStarted();
         setAdminBypass(true);
         return "admin";

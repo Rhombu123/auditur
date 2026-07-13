@@ -1,4 +1,19 @@
 import { buildTodayAuditSummary } from "@/lib/audit";
+import {
+  demoCreateZone,
+  demoDeleteUpload,
+  demoDeleteVehicle,
+  demoDeleteZone,
+  demoExportPdfBlob,
+  demoUpdateVehicle,
+  demoUpdateZoneColors,
+  demoUploadPdf,
+  getDemoDashboard,
+  getDemoInventory,
+  getDemoScannedVehicles,
+  getDemoZones,
+  isDemoLotEnabled,
+} from "@/lib/demo-store";
 import { findZoneForPoint, isScannedToday } from "@/lib/geo";
 import {
   normalizeZoneName,
@@ -14,18 +29,11 @@ import type {
   ScanFeedItem,
   ZoneStat,
 } from "@/lib/types";
+import { ZONE_COLOR_OPTIONS } from "@/lib/web-api-constants";
+import type { ScannedVehicleRow } from "@/lib/web-api-types";
 
-export type ScannedVehicleRow = {
-  id: string;
-  vinSuffix: string;
-  model: string;
-  color: string;
-  scannedAt: string;
-  latitude: number;
-  longitude: number;
-  matched: boolean;
-  scannerEmail: string | null;
-};
+export { ZONE_COLOR_OPTIONS } from "@/lib/web-api-constants";
+export type { ScannedVehicleRow } from "@/lib/web-api-types";
 
 const UPLOAD_API_URL =
   process.env.NEXT_PUBLIC_UPLOAD_API_URL?.trim() ||
@@ -33,17 +41,6 @@ const UPLOAD_API_URL =
   "https://auditur.vercel.app/api/upload";
 
 const EXPORT_API_URL = UPLOAD_API_URL.replace(/\/upload\/?$/, "/export-audit");
-
-export const ZONE_COLOR_OPTIONS = [
-  { id: "teal", label: "Teal", fill: "rgba(13, 148, 136, 0.35)", stroke: "#0D9488" },
-  { id: "blue", label: "Blue", fill: "rgba(59, 130, 246, 0.35)", stroke: "#3B82F6" },
-  { id: "amber", label: "Amber", fill: "rgba(245, 158, 11, 0.35)", stroke: "#F59E0B" },
-  { id: "violet", label: "Violet", fill: "rgba(139, 92, 246, 0.35)", stroke: "#8B5CF6" },
-  { id: "rose", label: "Rose", fill: "rgba(244, 63, 94, 0.35)", stroke: "#F43F5E" },
-  { id: "green", label: "Green", fill: "rgba(34, 197, 94, 0.35)", stroke: "#22C55E" },
-  { id: "orange", label: "Orange", fill: "rgba(249, 115, 22, 0.35)", stroke: "#F97316" },
-  { id: "slate", label: "Slate", fill: "rgba(100, 116, 139, 0.35)", stroke: "#64748B" },
-] as const;
 
 function zoneColorByIndex(index: number) {
   return ZONE_COLOR_OPTIONS[index % ZONE_COLOR_OPTIONS.length];
@@ -82,6 +79,7 @@ async function fetchInventory() {
 }
 
 export async function fetchZones(): Promise<LotZone[]> {
+  if (isDemoLotEnabled()) return getDemoZones();
   const { data, error } = await supabase
     .from("lot_zones")
     .select("*")
@@ -97,6 +95,26 @@ export async function fetchZones(): Promise<LotZone[]> {
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
+  if (isDemoLotEnabled()) return getDemoDashboard();
+
+  try {
+    const data = await fetchLiveDashboardData();
+    const empty =
+      !data.audit && data.totalPinnedVehicles === 0 && data.uploadLog.length === 0;
+    if (empty) {
+      const { enableDemoLot } = await import("@/lib/demo-store");
+      enableDemoLot();
+      return getDemoDashboard();
+    }
+    return data;
+  } catch {
+    const { enableDemoLot } = await import("@/lib/demo-store");
+    enableDemoLot();
+    return getDemoDashboard();
+  }
+}
+
+async function fetchLiveDashboardData(): Promise<DashboardData> {
   const [inventory, { data: scans, error: scansError }, uploadRows, zones] =
     await Promise.all([
       fetchInventory(),
@@ -198,12 +216,14 @@ export async function fetchInventoryList(): Promise<{
   fileName: string;
   items: InventoryItem[];
 } | null> {
+  if (isDemoLotEnabled()) return getDemoInventory();
   const inventory = await fetchInventory();
   if (!inventory) return null;
   return { fileName: inventory.fileName, items: inventory.items };
 }
 
 export async function fetchScannedVehicles(): Promise<ScannedVehicleRow[]> {
+  if (isDemoLotEnabled()) return getDemoScannedVehicles();
   const { data, error } = await supabase
     .from("vehicle_scans")
     .select("id, vin_suffix, model, color, scanned_at, latitude, longitude, matched, scanner_email")
@@ -230,6 +250,10 @@ export async function fetchScannedVehicles(): Promise<ScannedVehicleRow[]> {
 }
 
 export async function uploadInventoryPdf(file: File): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoUploadPdf(file.name);
+    return;
+  }
   const formData = new FormData();
   formData.append("file", file, file.name);
   const response = await fetch(UPLOAD_API_URL, { method: "POST", body: formData });
@@ -240,6 +264,10 @@ export async function uploadInventoryPdf(file: File): Promise<void> {
 }
 
 export async function deleteInventoryUpload(uploadId: string): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoDeleteUpload(uploadId);
+    return;
+  }
   const { data: upload, error: fetchError } = await supabase
     .from("inventory_uploads")
     .select("storage_path")
@@ -265,6 +293,16 @@ export async function deleteInventoryUpload(uploadId: string): Promise<void> {
 }
 
 export async function exportHighlightedAuditPdf(): Promise<void> {
+  if (isDemoLotEnabled()) {
+    const blob = demoExportPdfBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-demo-${Date.now()}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
   const response = await fetch(EXPORT_API_URL);
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
@@ -283,6 +321,10 @@ export async function updateScannedVehicle(
   id: string,
   updates: { model: string; color: string },
 ): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoUpdateVehicle(id, updates);
+    return;
+  }
   const { data: row, error: fetchError } = await supabase
     .from("vehicle_scans")
     .select("vin_suffix")
@@ -298,6 +340,10 @@ export async function updateScannedVehicle(
 }
 
 export async function deleteScannedVehicleByVinSuffix(vinSuffix: string): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoDeleteVehicle(vinSuffix);
+    return;
+  }
   const normalized = vinSuffix.trim().toUpperCase();
   const { data: matches, error: listError } = await supabase
     .from("vehicle_scans")
@@ -315,6 +361,7 @@ export async function createLotZone(input: {
   coordinates: { latitude: number; longitude: number }[];
   colorIndex?: number;
 }): Promise<LotZone> {
+  if (isDemoLotEnabled()) return demoCreateZone(input);
   const name = input.name.trim();
   const newPolygon = serializeZonePolygons([input.coordinates])[0];
   if (!newPolygon) throw new Error("Draw at least 3 corners before saving.");
@@ -376,6 +423,10 @@ export async function updateLotZoneColors(
   id: string,
   colors: { fillColor: string; strokeColor: string },
 ): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoUpdateZoneColors(id, colors);
+    return;
+  }
   const { error } = await supabase
     .from("lot_zones")
     .update({ fill_color: colors.fillColor, stroke_color: colors.strokeColor })
@@ -384,6 +435,10 @@ export async function updateLotZoneColors(
 }
 
 export async function deleteLotZone(id: string): Promise<void> {
+  if (isDemoLotEnabled()) {
+    demoDeleteZone(id);
+    return;
+  }
   const { error } = await supabase.from("lot_zones").delete().eq("id", id);
   if (error) throw error;
 }

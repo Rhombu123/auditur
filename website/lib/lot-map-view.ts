@@ -4,6 +4,8 @@ export type LockedLotView = {
   latitude: number;
   longitude: number;
   zoom: number;
+  bearing: number;
+  pitch: number;
   south: number;
   west: number;
   north: number;
@@ -27,7 +29,17 @@ export function loadLockedLotView(): LockedLotView | null {
     ) {
       return null;
     }
-    return parsed as LockedLotView;
+    return {
+      latitude: parsed.latitude as number,
+      longitude: parsed.longitude as number,
+      zoom: parsed.zoom as number,
+      bearing: Number.isFinite(parsed.bearing) ? (parsed.bearing as number) : 0,
+      pitch: Number.isFinite(parsed.pitch) ? (parsed.pitch as number) : 0,
+      south: parsed.south as number,
+      west: parsed.west as number,
+      north: parsed.north as number,
+      east: parsed.east as number,
+    };
   } catch {
     return null;
   }
@@ -41,13 +53,13 @@ export function clearLockedLotView(): void {
   window.localStorage.removeItem(STORAGE_KEY);
 }
 
-/** Expand bounds so the user can pan a little inside the lot, but not leave it. */
+/** Tight pad so a locked lot stays on-lot; use 0.08–0.15 for hard lock. */
 export function padLotBounds(
   view: Pick<LockedLotView, "south" | "west" | "north" | "east">,
-  factor = 0.4,
+  factor = 0.12,
 ): { south: number; west: number; north: number; east: number } {
-  const latSpan = Math.max(view.north - view.south, 0.0004);
-  const lngSpan = Math.max(view.east - view.west, 0.0004);
+  const latSpan = Math.max(view.north - view.south, 0.00035);
+  const lngSpan = Math.max(view.east - view.west, 0.00035);
   const latPad = latSpan * factor;
   const lngPad = lngSpan * factor;
   return {

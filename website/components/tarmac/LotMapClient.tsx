@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Map as LeafletMap, LayerGroup } from "leaflet";
+import type {
+  GeoJSONSource,
+  Map as MapLibreMap,
+  MapMouseEvent,
+  StyleSpecification,
+} from "maplibre-gl";
 
+import { DEMO_LOT_CENTER } from "@/lib/demo-store";
 import {
   type LockedLotView,
   padLotBounds,
 } from "@/lib/lot-map-view";
 import type { LotZone } from "@/lib/types";
-import type { ScannedVehicleRow } from "@/lib/web-api";
+import type { ScannedVehicleRow } from "@/lib/web-api-types";
 
 type Point = { latitude: number; longitude: number };
 
@@ -22,10 +28,44 @@ type Props = {
   draft: Point[];
   drawing: boolean;
   lockedView: LockedLotView | null;
-  /** When true, map can roam freely so the user can pick a new locked area. */
   relocating: boolean;
-  onMapClick: (point: Point) => void;
+  onDraftChange: (points: Point[]) => void;
   onApiReady?: (api: LotMapApi) => void;
+};
+
+const SATELLITE_STYLE: StyleSpecification = {
+  version: 8,
+  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  sources: {
+    satellite: {
+      type: "raster",
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256,
+      attribution:
+        "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      maxzoom: 19,
+    },
+    roads: {
+      type: "raster",
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256,
+      attribution: "Roads © Esri",
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    { id: "satellite", type: "raster", source: "satellite" },
+    {
+      id: "roads",
+      type: "raster",
+      source: "roads",
+      paint: { "raster-opacity": 0.92 },
+    },
+  ],
 };
 
 function isValidPoint(point: { latitude: number; longitude: number } | null | undefined) {
@@ -38,6 +78,13 @@ function isValidPoint(point: { latitude: number; longitude: number } | null | un
   );
 }
 
+function distanceMeters(a: Point, b: Point) {
+  const dLat = (a.latitude - b.latitude) * 111_320;
+  const dLng =
+    (a.longitude - b.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
+  return Math.hypot(dLat, dLng);
+}
+
 export default function LotMapClient({
   zones,
   vehicles,
@@ -45,26 +92,27 @@ export default function LotMapClient({
   drawing,
   lockedView,
   relocating,
-  onMapClick,
+  onDraftChange,
   onApiReady,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const overlaysRef = useRef<LayerGroup | null>(null);
-  const draftLayerRef = useRef<LayerGroup | null>(null);
-  const onMapClickRef = useRef(onMapClick);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const drawingRef = useRef(drawing);
-  const lockedViewRef = useRef(lockedView);
   const relocatingRef = useRef(relocating);
+  const lockedViewRef = useRef(lockedView);
+  const draftRef = useRef(draft);
+  const onDraftChangeRef = useRef(onDraftChange);
   const onApiReadyRef = useRef(onApiReady);
+  const freehandActiveRef = useRef(false);
   const didFitFallbackRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  onMapClickRef.current = onMapClick;
   drawingRef.current = drawing;
-  lockedViewRef.current = lockedView;
   relocatingRef.current = relocating;
+  lockedViewRef.current = lockedView;
+  draftRef.current = draft;
+  onDraftChangeRef.current = onDraftChange;
   onApiReadyRef.current = onApiReady;
 
   useEffect(() => {
@@ -72,79 +120,173 @@ export default function LotMapClient({
     if (!el || mapRef.current) return;
 
     let cancelled = false;
+    let cleanupFns: Array<() => void> = [];
 
     void (async () => {
       try {
-        const L = (await import("leaflet")).default;
+        const maplibregl = (await import("maplibre-gl")).default;
         if (cancelled || !containerRef.current || mapRef.current) return;
 
         const saved = lockedViewRef.current;
-        const map = L.map(containerRef.current, {
-          scrollWheelZoom: true,
-          maxZoom: 20,
+        const map = new maplibregl.Map({
+          container: containerRef.current,
+          style: SATELLITE_STYLE,
+          center: saved
+            ? [saved.longitude, saved.latitude]
+            : [DEMO_LOT_CENTER.lng, DEMO_LOT_CENTER.lat],
+          zoom: saved ? saved.zoom : 17.2,
+          bearing: saved?.bearing ?? 0,
+          pitch: saved?.pitch ?? 45,
+          maxPitch: 70,
+          dragRotate: true,
+          touchPitch: true,
         });
 
-        if (saved && !relocatingRef.current) {
-          map.setView([saved.latitude, saved.longitude], saved.zoom);
-        } else {
-          map.setView([39.8283, -98.5795], 4);
-        }
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+        map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+        map.addControl(new maplibregl.ScaleControl({ maxWidth: 120 }), "bottom-left");
 
-        // Satellite base + road overlay (matches phone satellite lot view intent).
-        L.tileLayer(
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          {
-            attribution:
-              "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-            maxZoom: 20,
-            maxNativeZoom: 19,
-          },
-        ).addTo(map);
-
-        L.tileLayer(
-          "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
-          {
-            attribution: "Roads &copy; Esri",
-            maxZoom: 20,
-            maxNativeZoom: 19,
-            opacity: 0.95,
-          },
-        ).addTo(map);
-
-        overlaysRef.current = L.layerGroup().addTo(map);
-        draftLayerRef.current = L.layerGroup().addTo(map);
-
-        map.on("click", (event) => {
-          if (!drawingRef.current) return;
-          onMapClickRef.current({
-            latitude: event.latlng.lat,
-            longitude: event.latlng.lng,
+        map.on("load", () => {
+          map.addSource("zones", {
+            type: "geojson",
+            data: { type: "FeatureCollection", features: [] },
           });
+          map.addLayer({
+            id: "zones-fill",
+            type: "fill",
+            source: "zones",
+            paint: {
+              "fill-color": ["get", "fillColor"],
+              "fill-opacity": 0.4,
+            },
+          });
+          map.addLayer({
+            id: "zones-line",
+            type: "line",
+            source: "zones",
+            paint: {
+              "line-color": ["get", "strokeColor"],
+              "line-width": 2.5,
+            },
+          });
+
+          map.addSource("vehicles", {
+            type: "geojson",
+            data: { type: "FeatureCollection", features: [] },
+          });
+          map.addLayer({
+            id: "vehicles-circle",
+            type: "circle",
+            source: "vehicles",
+            paint: {
+              "circle-radius": 7,
+              "circle-color": ["case", ["get", "matched"], "#14B8A6", "#FBBF24"],
+              "circle-stroke-width": 2,
+              "circle-stroke-color": ["case", ["get", "matched"], "#0D9488", "#F59E0B"],
+            },
+          });
+
+          map.addSource("draft", {
+            type: "geojson",
+            data: { type: "FeatureCollection", features: [] },
+          });
+          map.addLayer({
+            id: "draft-fill",
+            type: "fill",
+            source: "draft",
+            paint: {
+              "fill-color": "#0D9488",
+              "fill-opacity": 0.25,
+            },
+          });
+          map.addLayer({
+            id: "draft-line",
+            type: "line",
+            source: "draft",
+            paint: {
+              "line-color": "#5EEAD4",
+              "line-width": 3,
+              "line-dasharray": [2, 1],
+            },
+          });
+
+          mapRef.current = map;
+          setMapReady(true);
+
+          onApiReadyRef.current?.({
+            captureView: () => {
+              const current = mapRef.current;
+              if (!current) return null;
+              const center = current.getCenter();
+              const bounds = current.getBounds();
+              return {
+                latitude: center.lat,
+                longitude: center.lng,
+                zoom: current.getZoom(),
+                bearing: current.getBearing(),
+                pitch: current.getPitch(),
+                south: bounds.getSouth(),
+                west: bounds.getWest(),
+                north: bounds.getNorth(),
+                east: bounds.getEast(),
+              };
+            },
+          });
+
+          map.resize();
         });
 
-        mapRef.current = map;
-        setMapReady(true);
+        const appendFreehandPoint = (event: MapMouseEvent) => {
+          if (!drawingRef.current || !freehandActiveRef.current) return;
+          const next: Point = {
+            latitude: event.lngLat.lat,
+            longitude: event.lngLat.lng,
+          };
+          const prev = draftRef.current;
+          const last = prev[prev.length - 1];
+          if (last && distanceMeters(last, next) < 4) return;
+          onDraftChangeRef.current([...prev, next]);
+        };
 
-        onApiReadyRef.current?.({
-          captureView: () => {
-            const current = mapRef.current;
-            if (!current) return null;
-            const center = current.getCenter();
-            const bounds = current.getBounds();
-            return {
-              latitude: center.lat,
-              longitude: center.lng,
-              zoom: current.getZoom(),
-              south: bounds.getSouth(),
-              west: bounds.getWest(),
-              north: bounds.getNorth(),
-              east: bounds.getEast(),
-            };
-          },
-        });
+        const onDown = (event: MapMouseEvent) => {
+          if (!drawingRef.current) return;
+          event.preventDefault();
+          freehandActiveRef.current = true;
+          map.dragPan.disable();
+          map.dragRotate.disable();
+          const start: Point = {
+            latitude: event.lngLat.lat,
+            longitude: event.lngLat.lng,
+          };
+          onDraftChangeRef.current([...draftRef.current, start]);
+        };
 
-        requestAnimationFrame(() => map.invalidateSize());
-        window.setTimeout(() => map.invalidateSize(), 100);
+        const onUp = () => {
+          if (!freehandActiveRef.current) return;
+          freehandActiveRef.current = false;
+          if (!drawingRef.current) {
+            applyInteractionMode(map);
+          } else {
+            map.dragPan.disable();
+            map.dragRotate.disable();
+          }
+        };
+
+        map.on("mousedown", onDown);
+        map.on("mousemove", appendFreehandPoint);
+        map.on("mouseup", onUp);
+        map.on("touchstart", onDown);
+        map.on("touchmove", appendFreehandPoint);
+        map.on("touchend", onUp);
+
+        cleanupFns = [
+          () => map.off("mousedown", onDown),
+          () => map.off("mousemove", appendFreehandPoint),
+          () => map.off("mouseup", onUp),
+          () => map.off("touchstart", onDown),
+          () => map.off("touchmove", appendFreehandPoint),
+          () => map.off("touchend", onUp),
+        ];
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Map failed to load.");
@@ -154,160 +296,155 @@ export default function LotMapClient({
 
     return () => {
       cancelled = true;
+      cleanupFns.forEach((fn) => fn());
       setMapReady(false);
       mapRef.current?.remove();
       mapRef.current = null;
-      overlaysRef.current = null;
-      draftLayerRef.current = null;
     };
   }, []);
 
-  // Apply or clear the locked area constraints.
+  function applyInteractionMode(map: MapLibreMap) {
+    if (drawingRef.current) {
+      map.dragPan.disable();
+      map.dragRotate.disable();
+      map.touchZoomRotate.disableRotation();
+      return;
+    }
+
+    if (lockedViewRef.current && !relocatingRef.current) {
+      const locked = lockedViewRef.current;
+      const padded = padLotBounds(locked, 0.05);
+      map.setMaxBounds([
+        [padded.west, padded.south],
+        [padded.east, padded.north],
+      ]);
+      map.setMinZoom(Math.max(1, locked.zoom - 0.35));
+      map.jumpTo({
+        center: [locked.longitude, locked.latitude],
+        zoom: locked.zoom,
+        bearing: locked.bearing,
+        pitch: locked.pitch,
+      });
+      // Locked home: rotate/tilt/zoom stay on this lot; no free roaming.
+      map.dragPan.disable();
+      map.dragRotate.enable();
+      map.touchZoomRotate.enableRotation();
+      map.scrollZoom.enable();
+      map.boxZoom.disable();
+      map.keyboard.disable();
+      return;
+    }
+
+    map.setMaxBounds(null);
+    map.setMinZoom(1);
+    map.dragPan.enable();
+    map.dragRotate.enable();
+    map.touchZoomRotate.enableRotation();
+    map.scrollZoom.enable();
+    map.boxZoom.enable();
+    map.keyboard.enable();
+  }
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    applyInteractionMode(map);
+    map.resize();
+  }, [mapReady, lockedView, relocating, drawing]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    let cancelled = false;
-    void (async () => {
-      const L = (await import("leaflet")).default;
-      if (cancelled || !mapRef.current) return;
+    const zoneSource = map.getSource("zones") as GeoJSONSource | undefined;
+    const vehicleSource = map.getSource("vehicles") as GeoJSONSource | undefined;
+    if (!zoneSource || !vehicleSource) return;
 
-      if (lockedView && !relocating) {
-        const padded = padLotBounds(lockedView);
-        const maxBounds = L.latLngBounds(
-          [padded.south, padded.west],
-          [padded.north, padded.east],
-        );
-        map.setMaxBounds(maxBounds);
-        map.setMinZoom(Math.max(1, lockedView.zoom - 1.25));
-        map.options.maxBoundsViscosity = 1;
-        map.setView([lockedView.latitude, lockedView.longitude], lockedView.zoom, {
-          animate: false,
-        });
-      } else {
-        // Clear lot lock so the user can roam while placing a new home view.
-        map.setMaxBounds([
-          [-90, -180],
-          [90, 180],
-        ]);
-        map.setMinZoom(1);
-        map.options.maxBoundsViscosity = 0;
-      }
-      map.invalidateSize();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mapReady, lockedView, relocating]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    const id = window.setTimeout(() => map.invalidateSize(), 50);
-    return () => window.clearTimeout(id);
-  }, [mapReady, zones, vehicles, draft, drawing, relocating]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const overlays = overlaysRef.current;
-    if (!map || !overlays || !mapReady) return;
-
-    let cancelled = false;
-    void (async () => {
-      const L = (await import("leaflet")).default;
-      if (cancelled) return;
-      overlays.clearLayers();
-
-      for (const zone of zones) {
-        for (const polygon of zone.polygons) {
-          const points = polygon.filter(isValidPoint);
-          if (points.length < 3) continue;
-          L.polygon(
-            points.map((p) => [p.latitude, p.longitude] as [number, number]),
-            {
-              color: zone.strokeColor,
+    zoneSource.setData({
+      type: "FeatureCollection",
+      features: zones.flatMap((zone) =>
+        zone.polygons
+          .map((polygon) => polygon.filter(isValidPoint))
+          .filter((polygon) => polygon.length >= 3)
+          .map((polygon) => ({
+            type: "Feature" as const,
+            properties: {
+              name: zone.name,
               fillColor: zone.fillColor,
-              fillOpacity: 0.45,
-              weight: 2,
+              strokeColor: zone.strokeColor,
             },
-          )
-            .bindPopup(zone.name)
-            .addTo(overlays);
-        }
-      }
+            geometry: {
+              type: "Polygon" as const,
+              coordinates: [
+                [
+                  ...polygon.map((p) => [p.longitude, p.latitude] as [number, number]),
+                  [polygon[0].longitude, polygon[0].latitude] as [number, number],
+                ],
+              ],
+            },
+          })),
+      ),
+    });
 
-      const pins = vehicles.filter(isValidPoint);
-      for (const vehicle of pins) {
-        L.circleMarker([vehicle.latitude, vehicle.longitude], {
-          radius: 7,
-          color: vehicle.matched ? "#0D9488" : "#F59E0B",
-          fillColor: vehicle.matched ? "#14B8A6" : "#FBBF24",
-          fillOpacity: 0.9,
-          weight: 2,
-        })
-          .bindPopup(
-            `<strong>${escapeHtml(vehicle.model)}</strong><br/>${escapeHtml(vehicle.color)} · …${escapeHtml(vehicle.vinSuffix)}`,
-          )
-          .addTo(overlays);
-      }
+    const pins = vehicles.filter(isValidPoint);
+    vehicleSource.setData({
+      type: "FeatureCollection",
+      features: pins.map((vehicle) => ({
+        type: "Feature" as const,
+        properties: {
+          matched: vehicle.matched,
+          label: `${vehicle.model} · …${vehicle.vinSuffix}`,
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [vehicle.longitude, vehicle.latitude],
+        },
+      })),
+    });
 
-      // Only auto-focus pins/zones when no locked lot area is set and user isn't relocating.
-      if (!lockedViewRef.current && !relocatingRef.current && !didFitFallbackRef.current) {
-        const firstPin = pins[0];
-        const firstZonePoint = zones.flatMap((z) => z.polygons.flat()).find(isValidPoint);
-        if (firstPin) {
-          map.setView([firstPin.latitude, firstPin.longitude], Math.max(map.getZoom(), 17));
-          didFitFallbackRef.current = true;
-        } else if (firstZonePoint) {
-          map.setView(
-            [firstZonePoint.latitude, firstZonePoint.longitude],
-            Math.max(map.getZoom(), 17),
-          );
-          didFitFallbackRef.current = true;
-        }
-      }
+    if (!lockedViewRef.current && !relocatingRef.current && !didFitFallbackRef.current && pins[0]) {
+      map.flyTo({
+        center: [pins[0].longitude, pins[0].latitude],
+        zoom: Math.max(map.getZoom(), 17),
+        duration: 600,
+      });
+      didFitFallbackRef.current = true;
+    }
 
-      map.invalidateSize();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    map.resize();
   }, [mapReady, zones, vehicles]);
 
   useEffect(() => {
-    const draftLayer = draftLayerRef.current;
-    if (!draftLayer || !mapReady) return;
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const draftSource = map.getSource("draft") as GeoJSONSource | undefined;
+    if (!draftSource) return;
 
-    let cancelled = false;
-    void (async () => {
-      const L = (await import("leaflet")).default;
-      if (cancelled) return;
-      draftLayer.clearLayers();
+    const points = draft.filter(isValidPoint);
+    if (points.length < 2) {
+      draftSource.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
 
-      const points = draft.filter(isValidPoint);
-      if (points.length >= 2) {
-        L.polyline(
-          points.map((p) => [p.latitude, p.longitude] as [number, number]),
-          { color: "#0D9488", dashArray: "6 6", weight: 2 },
-        ).addTo(draftLayer);
-      }
+    const ring = points.map((p) => [p.longitude, p.latitude] as [number, number]);
+    const closed =
+      points.length >= 3
+        ? [...ring, [points[0].longitude, points[0].latitude] as [number, number]]
+        : ring;
 
-      for (const point of points) {
-        L.circleMarker([point.latitude, point.longitude], {
-          radius: 5,
-          color: "#ecfdf5",
-          fillColor: "#0D9488",
-          fillOpacity: 1,
-          weight: 2,
-        }).addTo(draftLayer);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    draftSource.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry:
+            points.length >= 3
+              ? { type: "Polygon", coordinates: [closed] }
+              : { type: "LineString", coordinates: ring },
+        },
+      ],
+    });
   }, [mapReady, draft]);
 
   if (error) {
@@ -319,18 +456,28 @@ export default function LotMapClient({
   }
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height: "100%", width: "100%", minHeight: 360, background: "#0b1220" }}
-      role="presentation"
-    />
+    <div style={{ position: "relative", height: "100%", width: "100%", minHeight: 360 }}>
+      <div
+        ref={containerRef}
+        style={{ height: "100%", width: "100%", minHeight: 360, background: "#0b1220" }}
+        role="presentation"
+      />
+      <p
+        style={{
+          position: "absolute",
+          left: 10,
+          bottom: 10,
+          margin: 0,
+          padding: "0.35rem 0.55rem",
+          borderRadius: 6,
+          background: "rgba(11,15,20,0.72)",
+          color: "#cbd5e1",
+          fontSize: 11,
+          pointerEvents: "none",
+        }}
+      >
+        Drag with right-click / Ctrl+drag to rotate · two-finger tilt on trackpad
+      </p>
+    </div>
   );
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }

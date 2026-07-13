@@ -14,6 +14,7 @@ import { UploadStrip } from "@/components/tarmac/UploadStrip";
 import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
 import { displayName, useAuth } from "@/lib/auth-context";
+import { isDemoLotEnabled, resetDemoLot } from "@/lib/demo-store";
 import { tarmac } from "@/lib/tarmac-theme";
 import type { DashboardData } from "@/lib/types";
 import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
@@ -31,13 +32,14 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export function TarmacDashboard() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAdminBypass } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<TabId>("overview");
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -57,6 +59,7 @@ export function TarmacDashboard() {
     }
     try {
       setData(await fetchDashboardData());
+      setDemoMode(isDemoLotEnabled());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load dashboard.");
     } finally {
@@ -101,7 +104,7 @@ export function TarmacDashboard() {
         </div>
         <div className="command-right">
           <div className="manager">
-            <span className="mgr-label">Manager</span>
+            <span className="mgr-label">{isAdminBypass ? "Admin" : "Manager"}</span>
             <strong>{displayName(user)}</strong>
           </div>
           {syncing ? <span className="sync-pill">Syncing…</span> : null}
@@ -109,13 +112,37 @@ export function TarmacDashboard() {
             type="button"
             className="signout"
             onClick={() => void handleSignOut()}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ scale: 1.03, y: -1 }}
+            whileTap={{ scale: 0.97 }}
           >
-            Sign out
+            <span className="signout-label">Sign out</span>
+            <span className="signout-icon" aria-hidden>
+              →
+            </span>
           </motion.button>
         </div>
       </header>
+
+      {demoMode ? (
+        <div className="demo-banner">
+          <div>
+            <strong>Demo lot loaded</strong>
+            <span>
+              Sample inventory, scans, and zones. Edits stay in this browser so you can poke around.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="demo-reset"
+            onClick={() => {
+              resetDemoLot();
+              void load();
+            }}
+          >
+            Reset demo
+          </button>
+        </div>
+      ) : null}
 
       <nav className="tabs" aria-label="Dashboard sections">
         {TABS.map((item) => (
@@ -189,7 +216,7 @@ export function TarmacDashboard() {
           min-height: 100vh;
           background: ${tarmac.asphalt};
           color: ${tarmac.text};
-          padding: 1.25rem clamp(1rem, 3vw, 2rem) 3rem;
+          padding: 1.6rem clamp(1.15rem, 3.4vw, 2.4rem) 3.5rem;
           position: relative;
         }
 
@@ -210,9 +237,9 @@ export function TarmacDashboard() {
           display: flex;
           flex-wrap: wrap;
           justify-content: space-between;
-          gap: 1rem;
-          padding-bottom: 1.25rem;
-          margin-bottom: 0.85rem;
+          gap: 1.25rem;
+          padding: 0.35rem 0 1.4rem;
+          margin-bottom: 1.1rem;
           border-bottom: 1px solid ${tarmac.line};
         }
 
@@ -225,7 +252,7 @@ export function TarmacDashboard() {
         }
 
         h1 {
-          margin: 0.35rem 0 0;
+          margin: 0.4rem 0 0;
           font-family: var(--font-mono), monospace;
           font-size: clamp(1.6rem, 4vw, 2.2rem);
           letter-spacing: 0.12em;
@@ -233,7 +260,7 @@ export function TarmacDashboard() {
         }
 
         .command-bar p {
-          margin: 0.25rem 0 0;
+          margin: 0.35rem 0 0;
           color: ${tarmac.slate};
           font-size: 0.88rem;
         }
@@ -246,6 +273,7 @@ export function TarmacDashboard() {
 
         .manager {
           text-align: right;
+          padding-right: 0.25rem;
         }
 
         .mgr-label {
@@ -266,7 +294,7 @@ export function TarmacDashboard() {
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: ${tarmac.teal};
-          padding: 0.35rem 0.6rem;
+          padding: 0.4rem 0.7rem;
           border: 1px solid ${tarmac.line};
           border-radius: 999px;
           animation: pulse-sync 1s ease-in-out infinite;
@@ -279,13 +307,80 @@ export function TarmacDashboard() {
         }
 
         .signout {
-          padding: 0.55rem 1rem;
-          border-radius: 6px;
-          border: 1px solid ${tarmac.line};
-          background: ${tarmac.asphaltCard};
-          color: ${tarmac.text};
-          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.55rem;
+          padding: 0.7rem 1.05rem;
+          border-radius: 999px;
+          border: 1px solid rgba(248, 113, 113, 0.35);
+          background:
+            linear-gradient(180deg, rgba(248, 113, 113, 0.16), rgba(248, 113, 113, 0.06)),
+            ${tarmac.asphaltCard};
+          color: #fecaca;
+          font-weight: 750;
           font-size: 0.82rem;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        }
+
+        .signout-label {
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 0.72rem;
+          font-weight: 800;
+        }
+
+        .signout-icon {
+          display: grid;
+          place-items: center;
+          width: 1.35rem;
+          height: 1.35rem;
+          border-radius: 999px;
+          background: rgba(248, 113, 113, 0.2);
+          color: #fda4af;
+          font-size: 0.7rem;
+        }
+
+        .demo-banner {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          gap: 0.85rem;
+          align-items: center;
+          margin-bottom: 1.15rem;
+          padding: 0.95rem 1.1rem;
+          border-radius: 10px;
+          border: 1px dashed ${tarmac.line};
+          background: rgba(13, 148, 136, 0.1);
+        }
+
+        .demo-banner strong {
+          display: block;
+          color: ${tarmac.teal};
+          font-size: 0.82rem;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .demo-banner span {
+          display: block;
+          margin-top: 0.2rem;
+          color: ${tarmac.slate};
+          font-size: 0.84rem;
+          line-height: 1.4;
+          max-width: 40rem;
+        }
+
+        .demo-reset {
+          border: 1px solid ${tarmac.line};
+          background: transparent;
+          color: ${tarmac.text};
+          border-radius: 8px;
+          padding: 0.55rem 0.85rem;
+          font-weight: 700;
           cursor: pointer;
         }
 
@@ -294,8 +389,8 @@ export function TarmacDashboard() {
           z-index: 1;
           display: flex;
           flex-wrap: wrap;
-          gap: 0.45rem;
-          margin-bottom: 1.1rem;
+          gap: 0.55rem;
+          margin-bottom: 1.35rem;
         }
 
         .tab {
@@ -303,7 +398,7 @@ export function TarmacDashboard() {
           background: transparent;
           color: ${tarmac.slate};
           border-radius: 999px;
-          padding: 0.45rem 0.9rem;
+          padding: 0.55rem 1rem;
           font-size: 0.8rem;
           font-weight: 700;
           cursor: pointer;
@@ -319,14 +414,15 @@ export function TarmacDashboard() {
           background: rgba(248, 113, 113, 0.12);
           border: 1px solid rgba(248, 113, 113, 0.35);
           color: ${tarmac.danger};
-          padding: 0.75rem 1rem;
-          border-radius: 6px;
-          margin-bottom: 1rem;
+          padding: 0.85rem 1.05rem;
+          border-radius: 10px;
+          margin-bottom: 1.15rem;
         }
 
         .loading {
           color: ${tarmac.slate};
           font-size: 0.9rem;
+          padding: 1rem 0;
         }
 
         .stat-strip {
@@ -334,15 +430,15 @@ export function TarmacDashboard() {
           z-index: 1;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 0.65rem;
-          margin-bottom: 1rem;
+          gap: 0.85rem;
+          margin-bottom: 1.25rem;
         }
 
         .stat-strip div {
-          padding: 0.85rem;
+          padding: 1.05rem 0.9rem;
           background: ${tarmac.asphaltCard};
           border: 1px solid ${tarmac.lineDim};
-          border-radius: 6px;
+          border-radius: 10px;
           text-align: center;
         }
 
@@ -363,8 +459,8 @@ export function TarmacDashboard() {
           position: relative;
           z-index: 1;
           display: grid;
-          gap: 1rem;
-          margin-bottom: 1rem;
+          gap: 1.15rem;
+          margin-bottom: 1.25rem;
         }
 
         @media (min-width: 1024px) {
