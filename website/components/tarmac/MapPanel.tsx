@@ -179,6 +179,7 @@ export function MapPanel({ onChanged }: Props) {
 
       <div className="map-shell">
         <LotMapClient
+          key="lot-map"
           zones={zones}
           vehicles={vehicles}
           draft={draft}

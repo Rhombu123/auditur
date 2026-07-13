@@ -1,3 +1,5 @@
+@import "leaflet/dist/leaflet.css";
+
 *,
 *::before,
 *::after {
@@ -29,4 +31,12 @@ button {
 .vin,
 [class*="vin"] {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
+}
+
+/* Leaflet tiles/containers must not be zero-height when mounted in tabs. */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: #0b1220;
+  font: inherit;
 }
