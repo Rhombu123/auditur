@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ZONE_COLOR_OPTIONS,
@@ -12,8 +12,14 @@ import {
   updateLotZoneColors,
   type ScannedVehicleRow,
 } from "@/lib/web-api";
+import {
+  type LockedLotView,
+  loadLockedLotView,
+  saveLockedLotView,
+} from "@/lib/lot-map-view";
 import type { LotZone } from "@/lib/types";
 import { tarmac } from "@/lib/tarmac-theme";
+import type { LotMapApi } from "@/components/tarmac/LotMapClient";
 
 const LotMapClient = dynamic(() => import("@/components/tarmac/LotMapClient"), {
   ssr: false,
@@ -39,6 +45,15 @@ export function MapPanel({ onChanged }: Props) {
   const [colorIndex, setColorIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lockedView, setLockedView] = useState<LockedLotView | null>(null);
+  const [relocating, setRelocating] = useState(true);
+  const mapApiRef = useRef<LotMapApi | null>(null);
+
+  useEffect(() => {
+    const saved = loadLockedLotView();
+    setLockedView(saved);
+    setRelocating(!saved);
+  }, []);
 
   const reload = useCallback(async () => {
     const [nextZones, nextVehicles] = await Promise.all([fetchZones(), fetchScannedVehicles()]);
@@ -55,6 +70,23 @@ export function MapPanel({ onChanged }: Props) {
   async function afterMutation() {
     await reload();
     await onChanged();
+  }
+
+  function handleLockArea() {
+    const view = mapApiRef.current?.captureView();
+    if (!view) {
+      setError("Map is still loading — try again in a moment.");
+      return;
+    }
+    saveLockedLotView(view);
+    setLockedView(view);
+    setRelocating(false);
+    setError(null);
+  }
+
+  function handleChangePlacement() {
+    setRelocating(true);
+    setError(null);
   }
 
   async function handleSaveZone() {
@@ -114,8 +146,8 @@ export function MapPanel({ onChanged }: Props) {
         <div>
           <h2>Lot map</h2>
           <p>
-            View phone scan pins and manage zones. Drawing a zone with the same name adds another
-            polygon to it. Scan / camera capture stays on the phone.
+            Satellite view of the lot. Lock an area so the map always opens there — pan and zoom
+            stay inside that view until you change placement.
           </p>
         </div>
         <div className="hero-actions">
@@ -147,6 +179,27 @@ export function MapPanel({ onChanged }: Props) {
             </>
           )}
         </div>
+      </div>
+
+      <div className={relocating ? "lock-bar active" : "lock-bar"}>
+        {relocating ? (
+          <>
+            <span className="hint">
+              Pan and zoom to your dealership lot, then lock this area. The map will always reload
+              here.
+            </span>
+            <button type="button" className="primary" onClick={handleLockArea}>
+              Lock this area
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="hint">Lot view locked — map stays on this area.</span>
+            <button type="button" className="ghost" onClick={handleChangePlacement}>
+              Change placement
+            </button>
+          </>
+        )}
       </div>
 
       {drawing ? (
@@ -184,7 +237,12 @@ export function MapPanel({ onChanged }: Props) {
           vehicles={vehicles}
           draft={draft}
           drawing={drawing}
+          lockedView={lockedView}
+          relocating={relocating}
           onMapClick={(point) => setDraft((prev) => [...prev, point])}
+          onApiReady={(api) => {
+            mapApiRef.current = api;
+          }}
         />
       </div>
 
@@ -250,10 +308,17 @@ export function MapPanel({ onChanged }: Props) {
           border-radius:6px; padding:0.55rem 0.8rem; font-weight:700; cursor:pointer;
         }
         .danger { color:${tarmac.danger}; border-color:rgba(248,113,113,0.45); }
-        .draw-bar {
+        .lock-bar, .draw-bar {
           display:flex; flex-wrap:wrap; gap:0.65rem; align-items:center;
           margin-bottom:0.85rem; padding:0.75rem 0.9rem; border-radius:8px;
-          border:1px dashed ${tarmac.line}; background:rgba(13,148,136,0.08);
+          border:1px solid ${tarmac.line}; background:${tarmac.asphaltCard};
+        }
+        .lock-bar.active {
+          border-style: dashed; border-color: ${tarmac.teal};
+          background:rgba(13,148,136,0.08);
+        }
+        .draw-bar {
+          border-style: dashed; background:rgba(13,148,136,0.08);
         }
         .draw-bar input {
           flex:1; min-width:200px; padding:0.55rem 0.7rem; border-radius:6px;
@@ -266,14 +331,11 @@ export function MapPanel({ onChanged }: Props) {
           cursor:pointer; padding:0;
         }
         .swatch.active { border-color:#ecfdf5; box-shadow:0 0 0 2px ${tarmac.teal}; }
-        .hint { color:${tarmac.slate}; font-size:0.78rem; }
+        .hint { color:${tarmac.slate}; font-size:0.78rem; flex:1; min-width:220px; }
         .map-shell {
           height: min(62vh, 560px); min-height: 360px;
           border:1px solid ${tarmac.line}; border-radius:8px; overflow:hidden;
           margin-bottom:0.85rem; background:${tarmac.asphaltCard};
-        }
-        .map-shell :global(.map-loading) {
-          display:grid; place-items:center; height:100%; color:${tarmac.slate}; margin:0;
         }
         .zone-list { display:grid; gap:0.5rem; }
         .zone-row {
