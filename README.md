@@ -51,7 +51,7 @@ npm run website:dev    # local preview at http://localhost:5173
 npm run website:build  # output to public/
 ```
 
-Deploy with `npm run deploy:api` — Vercel runs `vercel-build`, which builds the site and serves it at the project root (`auditur.vercel.app`). API routes remain at `/api/*`.
+Deploy with `npm run deploy:api` — Vercel runs `build:website` once via `vercel.json`, which builds the site into `public/`. API routes remain at `/api/*`.
 
 
 Deploy the API to Vercel with these env vars:
