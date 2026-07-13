@@ -3,6 +3,12 @@
   "framework": null,
   "buildCommand": "npm run build:website",
   "outputDirectory": "public",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/login", "destination": "/login.html" },
+    { "source": "/signup", "destination": "/signup.html" },
+    { "source": "/dashboard", "destination": "/dashboard.html" }
+  ],
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 60,
