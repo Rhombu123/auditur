@@ -51,7 +51,18 @@ npm run website:dev    # local preview at http://localhost:5173
 npm run website:build  # output to public/
 ```
 
-Deploy with `npm run deploy:api` — Vercel runs `build:website` once via `vercel.json`, which builds the site into `public/`. API routes remain at `/api/*`.
+### Manager dashboard
+
+- **Sign up:** `/signup` — name + email + 6-digit code (same Supabase OTP as the mobile app)
+- **Sign in:** `/login`
+- **Dashboard:** `/dashboard` — live audit progress, scan feed, lot sections, upload log
+
+Set these on Vercel (and in `website/.env.local` for local dev):
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Deploy with `npm run build:website` via `vercel.json` — API routes remain at `/api/*`.
 
 
 Deploy the API to Vercel with these env vars:

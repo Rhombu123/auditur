@@ -50,12 +50,12 @@ export function Navbar() {
       </nav>
 
       <motion.a
-        href="#features"
+        href="/login"
         className="nav-cta"
         whileHover={{ scale: 1.03, y: -1 }}
         whileTap={{ scale: 0.98 }}
       >
-        See the app
+        Manager sign in
       </motion.a>
 
       <style>{`
