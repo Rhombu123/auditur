@@ -5,6 +5,7 @@
 
 # dependencies
 /node_modules
+/website/node_modules
 /.pnp
 .pnp.*
 .yarn/*

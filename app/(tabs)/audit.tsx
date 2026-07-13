@@ -3,11 +3,13 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Chip, ChipRow } from "@/components/ui/chip";
 import { EmptyState, ErrorText, Screen, ScreenSubtitle } from "@/components/ui/screen";
@@ -48,6 +50,7 @@ export default function AuditScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState<AuditListFilter>("missing");
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +84,19 @@ export default function AuditScreen() {
     });
   }
 
+  async function handleExportPdf() {
+    setExporting(true);
+    setError(null);
+    try {
+      const { exportHighlightedAuditPdf } = await import("@/lib/export-audit-pdf");
+      await exportHighlightedAuditPdf();
+    } catch (exportError) {
+      setError(getErrorMessage(exportError, "Could not export highlighted PDF."));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <Screen>
       <ScreenSubtitle>
@@ -103,6 +119,14 @@ export default function AuditScreen() {
             {audit.inventoryFileName ? (
               <Text style={styles.fileMeta}>{audit.inventoryFileName}</Text>
             ) : null}
+            <Button
+              label={exporting ? "Preparing PDF…" : "Export highlighted PDF"}
+              variant="secondary"
+              compact
+              style={styles.exportBtn}
+              onPress={() => void handleExportPdf()}
+              disabled={exporting}
+            />
           </View>
 
           <StatRow>
@@ -185,6 +209,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: "center",
+  },
+  exportBtn: {
+    marginTop: spacing.md,
+    alignSelf: "stretch",
   },
   chips: {
     paddingHorizontal: spacing.lg,

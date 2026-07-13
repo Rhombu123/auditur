@@ -10,7 +10,10 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "lint": "expo lint",
-    "vercel-build": "echo 'API-only deploy — serverless functions in /api'"
+    "vercel-build": "cd website && npm install && npm run build",
+    "deploy:api": "vercel --prod --archive=tgz",
+    "website:dev": "cd website && npm run dev",
+    "website:build": "cd website && npm install && npm run build"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -19,6 +22,7 @@
     "@types/react": "~19.1.10",
     "@vercel/node": "^5.3.0",
     "babel-preset-expo": "~54.0.10",
+    "docutext": "^1.2.1",
     "expo": "^54.0.0",
     "expo-asset": "~12.0.13",
     "expo-camera": "~17.0.10",
@@ -31,11 +35,13 @@
     "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
     "expo-router": "~6.0.24",
+    "expo-sharing": "~14.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-text-extractor": "^2.0.0",
     "formidable": "^3.5.4",
     "moti": "^0.30.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.1.200",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-maps": "1.20.1",
@@ -49,7 +55,6 @@
     "@babel/core": "^7.25.2",
     "@expo/ngrok": "^4.1.3",
     "@types/formidable": "^3.4.5",
-    "@types/pdf-parse": "^1.1.5",
     "@types/react": "~19.1.10",
     "typescript": "^5.3.3"
   }

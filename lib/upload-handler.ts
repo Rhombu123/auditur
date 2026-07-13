@@ -46,7 +46,7 @@ export async function runUploadBuffer(
     };
   }
 
-  const inventory = await saveInventorySnapshot(fileName, result.items);
+  const inventory = await saveInventorySnapshot(fileName, result.items, buffer);
 
   return {
     status: 200,
@@ -55,6 +55,7 @@ export async function runUploadBuffer(
       uploadedAt: inventory.uploadedAt,
       itemCount: inventory.items.length,
       items: inventory.items,
+      uploadId: inventory.id,
     },
   };
 }

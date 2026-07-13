@@ -10,6 +10,7 @@ import {
 import type {
   InventoryItem,
   InventorySnapshot,
+  InventoryUploadLog,
   LotStatus,
   LotVehicle,
   LotZone,
@@ -20,6 +21,7 @@ import type {
 } from "@/lib/types";
 import { decodeVinFromNhtsa, formatDecodedVehicle } from "@/lib/vin-decode";
 import { matchesVehicleSearch } from "@/lib/vin-search";
+import { zoneColorByIndex } from "@/lib/zone-colors";
 
 const uploadApiUrl =
   process.env.EXPO_PUBLIC_UPLOAD_API_URL ??
@@ -135,6 +137,7 @@ export async function fetchInventory(): Promise<InventorySnapshot | null> {
   if (itemsError) throw itemsError;
 
   return {
+    id: upload.id,
     fileName: upload.file_name,
     uploadedAt: upload.uploaded_at,
     items: (items ?? []).map((row) => ({
@@ -148,6 +151,60 @@ export async function fetchInventory(): Promise<InventorySnapshot | null> {
       lotStatus: row.lot_status,
     })),
   };
+}
+
+export async function fetchUploadHistory(): Promise<InventoryUploadLog[]> {
+  const { data, error } = await supabase
+    .from("inventory_uploads")
+    .select("id, file_name, uploaded_at, item_count, storage_path")
+    .order("uploaded_at", { ascending: false })
+    .limit(25);
+
+  if (error) throw error;
+
+  const currentId = data?.[0]?.id ?? null;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    uploadedAt: row.uploaded_at,
+    itemCount: row.item_count ?? 0,
+    isCurrent: row.id === currentId,
+    hasStoredPdf: Boolean(row.storage_path),
+  }));
+}
+
+export async function deleteInventoryUpload(uploadId: string): Promise<void> {
+  const { data: upload, error: fetchError } = await supabase
+    .from("inventory_uploads")
+    .select("storage_path")
+    .eq("id", uploadId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(getErrorMessage(fetchError, "Could not find upload."));
+  }
+
+  if (upload?.storage_path) {
+    const { error: storageError } = await supabase.storage
+      .from("price-lists")
+      .remove([upload.storage_path]);
+    if (storageError) {
+      throw new Error(getErrorMessage(storageError, "Could not delete stored PDF."));
+    }
+  }
+
+  const { error: itemsError } = await supabase
+    .from("inventory_items")
+    .delete()
+    .eq("upload_id", uploadId);
+  if (itemsError) {
+    throw new Error(getErrorMessage(itemsError, "Could not delete inventory items."));
+  }
+
+  const { error } = await supabase.from("inventory_uploads").delete().eq("id", uploadId);
+  if (error) {
+    throw new Error(getErrorMessage(error, "Could not delete upload."));
+  }
 }
 
 export async function matchInventoryItem(vinSuffix: string) {
@@ -632,6 +689,27 @@ export async function updateLotZone(
   return updateLotZonePolygons(id, polygons);
 }
 
+export async function updateLotZoneColors(
+  id: string,
+  colors: { fillColor: string; strokeColor: string },
+): Promise<LotZone> {
+  const { data, error } = await supabase
+    .from("lot_zones")
+    .update({
+      fill_color: colors.fillColor,
+      stroke_color: colors.strokeColor,
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new Error(getErrorMessage(error, "Could not update zone color."));
+  }
+
+  return mapLotZoneRow(data);
+}
+
 async function updateLotZonePolygons(
   id: string,
   polygons: { latitude: number; longitude: number }[][],
@@ -732,13 +810,7 @@ export async function createLotZone(input: {
   }
 
   const { data: authData } = await supabase.auth.getUser();
-  const palette = [
-    { fill: "rgba(13, 148, 136, 0.22)", stroke: "#0D9488" },
-    { fill: "rgba(59, 130, 246, 0.22)", stroke: "#3B82F6" },
-    { fill: "rgba(245, 158, 11, 0.22)", stroke: "#F59E0B" },
-    { fill: "rgba(139, 92, 246, 0.22)", stroke: "#8B5CF6" },
-  ];
-  const colors = palette[(input.colorIndex ?? 0) % palette.length];
+  const colors = zoneColorByIndex(input.colorIndex ?? 0);
 
   const { data, error } = await supabase
     .from("lot_zones")

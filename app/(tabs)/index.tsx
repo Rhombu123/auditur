@@ -3,6 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -14,13 +15,28 @@ import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorText, Screen, ScreenSubtitle } from "@/components/ui/screen";
 import { VinSearchInput } from "@/components/vin-search-input";
 import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
-import { fetchInventory, uploadInventoryPdf } from "@/lib/mobile-api";
-import type { InventoryItem } from "@/lib/types";
+import {
+  deleteInventoryUpload,
+  fetchInventory,
+  fetchUploadHistory,
+  uploadInventoryPdf,
+} from "@/lib/mobile-api";
+import type { InventoryItem, InventoryUploadLog } from "@/lib/types";
 import { matchesVehicleSearch } from "@/lib/vin-search";
+
+function formatUploadedAt(value: string): string {
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export default function UploadScreen() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [uploadLog, setUploadLog] = useState<InventoryUploadLog[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -28,14 +44,22 @@ export default function UploadScreen() {
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const inventory = await fetchInventory();
+      const [inventory, history] = await Promise.all([
+        fetchInventory(),
+        fetchUploadHistory(),
+      ]);
+      setUploadLog(history);
       if (inventory) {
         setFileName(inventory.fileName);
         setItems(inventory.items);
+      } else {
+        setFileName(null);
+        setItems([]);
       }
-    } catch {
-      // No inventory yet.
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load uploads.");
     } finally {
       setLoading(false);
     }
@@ -73,6 +97,7 @@ export default function UploadScreen() {
       setFileName(inventory.fileName);
       setItems(inventory.items);
       setSearch("");
+      await loadInventory();
     } catch (uploadError) {
       setError(
         uploadError instanceof Error ? uploadError.message : "Upload failed.",
@@ -80,6 +105,34 @@ export default function UploadScreen() {
     } finally {
       setUploading(false);
     }
+  }
+
+  function confirmDeleteUpload(entry: InventoryUploadLog) {
+    Alert.alert(
+      "Remove this PDF?",
+      `"${entry.fileName}" will be deleted from your upload log${
+        entry.isCurrent ? " and is currently active for audits" : ""
+      }. Scanned vehicles are not deleted.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await deleteInventoryUpload(entry.id);
+                await loadInventory();
+              } catch (deleteError) {
+                setError(
+                  deleteError instanceof Error ? deleteError.message : "Delete failed.",
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -118,8 +171,37 @@ export default function UploadScreen() {
         <View style={styles.metaRow}>
           <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
           <Text style={styles.meta}>
-            {fileName} · {items.length} vehicles loaded
+            Active: {fileName} · {items.length} vehicles
           </Text>
+        </View>
+      ) : null}
+
+      {uploadLog.length > 0 ? (
+        <View style={styles.logSection}>
+          <Text style={styles.logTitle}>PDF upload log</Text>
+          {uploadLog.map((entry) => (
+            <Card key={entry.id} style={styles.logCard}>
+              <View style={styles.logRow}>
+                <View style={styles.logCopy}>
+                  <Text style={styles.logFile} numberOfLines={1}>
+                    {entry.fileName}
+                  </Text>
+                  <Text style={styles.logMeta}>
+                    {formatUploadedAt(entry.uploadedAt)} · {entry.itemCount} vehicles
+                    {entry.isCurrent ? " · Active" : ""}
+                    {!entry.hasStoredPdf ? " · No stored file" : ""}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => confirmDeleteUpload(entry)}
+                  accessibilityLabel={`Remove ${entry.fileName}`}
+                  style={styles.deleteBtn}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                </Pressable>
+              </View>
+            </Card>
+          ))}
         </View>
       ) : null}
 
@@ -189,6 +271,31 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   meta: { color: colors.textSecondary, fontSize: 13, flex: 1 },
+  logSection: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  logTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  logCard: { paddingVertical: spacing.sm },
+  logRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  logCopy: { flex: 1 },
+  logFile: { fontWeight: "700", color: colors.text, fontSize: 14 },
+  logMeta: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+  deleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.dangerLight,
+  },
   search: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,

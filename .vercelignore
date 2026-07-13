@@ -1,0 +1,27 @@
+# API-only deploy — exclude the Expo mobile app and native builds
+
+# Installed fresh on Vercel
+node_modules
+
+# Native / mobile
+app
+components
+assets
+ios
+android
+.expo
+expo-env.d.ts
+metro.config.js
+babel.config.js
+app.json
+
+# Local dev & docs
+.git
+.cursor
+.venv
+coverage
+*.pdf
+.DS_Store
+AGENTS.md
+CLAUDE.md
+README.md

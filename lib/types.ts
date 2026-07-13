@@ -12,9 +12,19 @@ export type InventoryItem = {
 export type LotStatus = "active" | "sold" | "auctioned";
 
 export type InventorySnapshot = {
+  id?: string;
   fileName: string;
   uploadedAt: string;
   items: InventoryItem[];
+};
+
+export type InventoryUploadLog = {
+  id: string;
+  fileName: string;
+  uploadedAt: string;
+  itemCount: number;
+  isCurrent: boolean;
+  hasStoredPdf: boolean;
 };
 
 export type ScanRecord = {

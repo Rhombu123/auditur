@@ -40,7 +40,19 @@ npx expo start
 
 ## PDF upload API
 
-PDF parsing runs server-side (Node) because `pdf-parse` can't run on mobile. The app posts to `EXPO_PUBLIC_UPLOAD_API_URL`, which defaults to the Vercel serverless function at `/api/upload`.
+PDF parsing runs server-side (Node) via `docutext` — it never runs on the phone. The app posts to `EXPO_PUBLIC_UPLOAD_API_URL`, which defaults to the Vercel serverless function at `/api/upload`.
+
+## Marketing website
+
+The landing page lives in `website/` (Vite + React + Framer Motion) and builds into `public/` on deploy.
+
+```bash
+npm run website:dev    # local preview at http://localhost:5173
+npm run website:build  # output to public/
+```
+
+Deploy with `npm run deploy:api` — Vercel runs `vercel-build`, which builds the site and serves it at the project root (`auditur.vercel.app`). API routes remain at `/api/*`.
+
 
 Deploy the API to Vercel with these env vars:
 

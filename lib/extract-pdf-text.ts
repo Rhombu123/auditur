@@ -1,6 +1,6 @@
-import pdf from "pdf-parse";
-
 export async function extractPdfText(buffer: Buffer): Promise<string> {
-  const result = await pdf(buffer);
-  return result.text;
+  // Dynamic import avoids Vercel's CJS bundler pulling docutext's browser build.
+  const { DocuText } = await import("docutext");
+  const doc = DocuText.fromBuffer(new Uint8Array(buffer));
+  return doc.text;
 }

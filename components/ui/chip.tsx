@@ -7,11 +7,15 @@ type Props = {
   selected?: boolean;
   onPress?: () => void;
   style?: ViewStyle;
+  accentColor?: string;
 };
 
-export function Chip({ label, selected, onPress, style }: Props) {
+export function Chip({ label, selected, onPress, style, accentColor }: Props) {
   const content = (
     <View style={[styles.chip, selected && styles.chipSelected, style]}>
+      {accentColor ? (
+        <View style={[styles.dot, { backgroundColor: accentColor }]} />
+      ) : null}
       <Text style={[styles.text, selected && styles.textSelected]}>{label}</Text>
     </View>
   );
@@ -36,6 +40,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -55,6 +62,11 @@ const styles = StyleSheet.create({
   textSelected: {
     color: colors.primaryDark,
     fontWeight: "700",
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   pressed: { opacity: 0.85 },
 });

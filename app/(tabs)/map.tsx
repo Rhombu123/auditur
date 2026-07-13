@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { MotiView } from "moti";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +22,7 @@ import { ZoneHandleMarker } from "@/components/zone-handle-marker";
 import { Chip } from "@/components/ui/chip";
 import { CoLocatedVehiclesModal } from "@/components/co-located-vehicles-modal";
 import { LotZoneNameModal } from "@/components/lot-zone-name-modal";
+import { ZoneColorModal } from "@/components/zone-color-modal";
 import { VehicleEditorModal } from "@/components/vehicle-editor-modal";
 import { Button } from "@/components/ui/button";
 import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
@@ -31,6 +34,7 @@ import {
   fetchLotZones,
   fetchScannedVehicles,
   updateLotZone,
+  updateLotZoneColors,
   updateScannedVehicle,
 } from "@/lib/mobile-api";
 import type { LotZone, ScannedVehicle } from "@/lib/types";
@@ -97,6 +101,8 @@ export default function MapScreen() {
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [namingZone, setNamingZone] = useState(false);
+  const [colorEditZone, setColorEditZone] = useState<LotZone | null>(null);
+  const [locationReady, setLocationReady] = useState(false);
 
   const refreshData = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -123,6 +129,19 @@ export default function MapScreen() {
     useCallback(() => {
       void refreshData(false);
     }, [refreshData]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          setLocationReady(status === "granted");
+        } catch {
+          setLocationReady(false);
+        }
+      })();
+    }, []),
   );
 
   useEffect(() => {
@@ -212,6 +231,42 @@ export default function MapScreen() {
       },
       350,
     );
+  }
+
+  async function centerOnMyLocation() {
+    try {
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        const request = await Location.requestForegroundPermissionsAsync();
+        status = request.status;
+      }
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location needed",
+          "Allow location access to see where you are on the lot map.",
+        );
+        setLocationReady(false);
+        return;
+      }
+
+      setLocationReady(true);
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      mapRef.current?.animateToRegion(
+        {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          latitudeDelta: 0.002,
+          longitudeDelta: 0.002,
+        },
+        350,
+      );
+    } catch {
+      setError("Could not get your location.");
+    }
   }
 
   function handleMarkerPress(vehicle: ScannedVehicle) {
@@ -307,8 +362,9 @@ export default function MapScreen() {
   }
 
   function promptZoneChipActions(zone: LotZone) {
-    Alert.alert(zone.name, "Filter, edit, or remove this section.", [
+    Alert.alert(zone.name, "Filter, edit, recolor, or remove this section.", [
       { text: "Show vehicles", onPress: () => setZoneFilterId(zone.id) },
+      { text: "Change color", onPress: () => setColorEditZone(zone) },
       { text: "Edit boundaries", onPress: () => startEditZone(zone) },
       {
         text: "Remove section",
@@ -317,6 +373,16 @@ export default function MapScreen() {
       },
       { text: "Cancel", style: "cancel" },
     ]);
+  }
+
+  async function handleSaveZoneColor(colors: { fillColor: string; strokeColor: string }) {
+    if (!colorEditZone) return;
+    try {
+      await updateLotZoneColors(colorEditZone.id, colors);
+      setZones(await fetchLotZones());
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, "Could not update zone color."));
+    }
   }
 
   function addShapeAt(coordinate: MapPoint, kind: ZoneShapeKind) {
@@ -495,6 +561,8 @@ export default function MapScreen() {
         style={StyleSheet.absoluteFill}
         mapType="satellite"
         initialRegion={initialRegion}
+        showsUserLocation={locationReady}
+        showsMyLocationButton={Platform.OS === "ios" && locationReady && !editorActive}
         onPress={handleMapPress}
       >
         {zones.flatMap((zone) =>
@@ -627,7 +695,11 @@ export default function MapScreen() {
               key={zone.id}
               onPress={() => promptZoneChipActions(zone)}
             >
-              <Chip label={zone.name} selected={zoneFilterId === zone.id} />
+              <Chip
+                label={zone.name}
+                selected={zoneFilterId === zone.id}
+                accentColor={zone.strokeColor}
+              />
             </Pressable>
           ))}
           <View style={styles.chipSpacer} />
@@ -680,13 +752,26 @@ export default function MapScreen() {
       ) : null}
 
       {!editorActive ? (
-        <Pressable
-          style={[styles.fab, { bottom: 96 + insets.bottom }]}
-          onPress={promptZoneFab}
-          accessibilityLabel="Manage lot zones"
-        >
-          <Ionicons name="create-outline" size={24} color={colors.onPrimary} />
-        </Pressable>
+        <>
+          <Pressable
+            style={[styles.locateFab, { bottom: 160 + insets.bottom }]}
+            onPress={() => void centerOnMyLocation()}
+            accessibilityLabel="Center map on my location"
+          >
+            <Ionicons
+              name="locate"
+              size={22}
+              color={locationReady ? colors.primary : colors.textMuted}
+            />
+          </Pressable>
+          <Pressable
+            style={[styles.fab, { bottom: 96 + insets.bottom }]}
+            onPress={promptZoneFab}
+            accessibilityLabel="Manage lot zones"
+          >
+            <Ionicons name="create-outline" size={24} color={colors.onPrimary} />
+          </Pressable>
+        </>
       ) : null}
 
       {!editorActive ? (
@@ -724,6 +809,13 @@ export default function MapScreen() {
         pointCount={draftPolygons.length}
         onClose={() => setNamingZone(false)}
         onSave={handleSaveNewZone}
+      />
+
+      <ZoneColorModal
+        zone={colorEditZone}
+        visible={Boolean(colorEditZone)}
+        onClose={() => setColorEditZone(null)}
+        onSave={handleSaveZoneColor}
       />
     </View>
   );
@@ -800,5 +892,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     ...shadow.sheet,
+  },
+  locateFab: {
+    position: "absolute",
+    right: spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.card,
   },
 });
