@@ -13,7 +13,7 @@ if (!existsSync(outDir)) {
 
 // Replace previous static export so stale chunks cannot keep serving placeholders.
 mkdirSync(publicDir, { recursive: true });
-for (const name of ["_next", "login", "signup", "dashboard", "404"]) {
+for (const name of ["_next", "login", "signup", "dashboard", "auth", "404"]) {
   rmSync(join(publicDir, name), { recursive: true, force: true });
 }
 for (const name of ["index.html", "index.txt", "404.html", "login.html", "signup.html", "dashboard.html"]) {

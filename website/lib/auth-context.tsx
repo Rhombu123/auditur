@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { getEmailConfirmRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
 import {
   clearWebSessionMarker,
   getWebSessionExpiresAt,
@@ -24,8 +25,7 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  sendEmailCode: (email: string, mode: "login" | "signup") => Promise<void>;
-  verifyEmailCode: (email: string, token: string, fullName?: string) => Promise<void>;
+  sendSignInLink: (email: string, mode: "login" | "signup", fullName?: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -102,46 +102,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const sendEmailCode = useCallback(async (email: string, mode: "login" | "signup") => {
-    assertSupabaseConfigured();
-    const normalized = normalizeEmail(email);
-    // Do not pass emailRedirectTo — that sends a clickable magic link in the email.
-    // Supabase sends a 6-digit code when the Magic Link template uses {{ .Token }} only.
-    const { error } = await supabase.auth.signInWithOtp({
-      email: normalized,
-      options: { shouldCreateUser: mode === "signup" },
-    });
-    if (error) {
-      throw new Error(formatAuthError(error, "Could not send verification code."));
-    }
-  }, []);
-
-  const verifyEmailCode = useCallback(
-    async (email: string, token: string, fullName?: string) => {
+  const sendSignInLink = useCallback(
+    async (email: string, mode: "login" | "signup", fullName?: string) => {
       assertSupabaseConfigured();
       const normalized = normalizeEmail(email);
-      const code = token.replace(/\D/g, "");
-      if (code.length < 6) {
-        throw new Error("Enter the 6-digit code from your email.");
+
+      if (mode === "signup" && fullName?.trim()) {
+        storePendingFullName(fullName);
       }
 
-      const { error } = await supabase.auth.verifyOtp({
+      // Sends a Confirm sign-in email (ConfirmationURL). User clicks Confirm → /auth/confirm/
+      const { error } = await supabase.auth.signInWithOtp({
         email: normalized,
-        token: code,
-        type: "email",
+        options: {
+          shouldCreateUser: mode === "signup",
+          emailRedirectTo: getEmailConfirmRedirectTo(),
+        },
       });
-
       if (error) {
-        throw new Error(formatAuthError(error, "Invalid or expired code."));
+        throw new Error(formatAuthError(error, "Could not send sign-in email."));
       }
-
-      if (fullName?.trim()) {
-        await supabase.auth.updateUser({
-          data: { full_name: fullName.trim() },
-        });
-      }
-
-      markWebSessionStarted();
     },
     [],
   );
@@ -157,11 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
-      sendEmailCode,
-      verifyEmailCode,
+      sendSignInLink,
       signOut,
     }),
-    [session, loading, sendEmailCode, verifyEmailCode, signOut],
+    [session, loading, sendSignInLink, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

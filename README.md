@@ -53,8 +53,8 @@ npm run website:build  # output to public/
 
 ### Manager dashboard
 
-- **Sign up:** `/signup` — name + email + 6-digit code (same Supabase OTP as the mobile app)
-- **Sign in:** `/login`
+- **Sign up / Sign in:** `/signup` and `/login` — email a **Confirm sign in** link (no 6-digit code)
+- **Confirm:** `/auth/confirm/` — finishes sign-in after the email link is clicked
 - **Dashboard:** `/dashboard` — live audit progress, scan feed, lot sections, upload log
 
 Set these on Vercel (and in `website/.env.local` for local dev):
@@ -62,18 +62,18 @@ Set these on Vercel (and in `website/.env.local` for local dev):
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-**Email: code only (no magic link)** — in Supabase → Authentication → Email Templates → **Magic Link**, replace the body so it uses `{{ .Token }}` and remove any `{{ .ConfirmationURL }}` link. Example:
+**Email: Confirm link (not OTP code)** — in Supabase → Authentication → Email Templates → **Magic Link**, use `{{ .ConfirmationURL }}` (and not `{{ .Token }}`). Example:
 
 ```html
-<h2>Your Auditur sign-in code</h2>
-<p>Enter this 6-digit code on the login page:</p>
-<p><strong>{{ .Token }}</strong></p>
+<h2>Confirm your Auditur sign-in</h2>
+<p>Click below to finish signing in:</p>
+<p><a href="{{ .ConfirmationURL }}">Confirm sign in</a></p>
 ```
 
 **Production URLs** — in Supabase → Authentication → URL Configuration:
 
 - Site URL: `https://auditur-ruby.vercel.app`
-- Redirect URLs: `https://auditur-ruby.vercel.app/**`
+- Redirect URLs: `https://auditur-ruby.vercel.app/**` and `http://localhost:5173/**`
 
 **Production host:** `https://auditur-ruby.vercel.app` (not `auditur.vercel.app`).
 

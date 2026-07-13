@@ -12,8 +12,8 @@ export const supabase: SupabaseClient = createClient(
     auth: {
       autoRefreshToken: true,
       persistSession: true,
-      // OTP-only flow: do not auto-sign-in from magic-link URLs in the email.
-      detectSessionInUrl: false,
+      detectSessionInUrl: true,
+      flowType: "pkce",
       storage: typeof window !== "undefined" ? window.localStorage : undefined,
       storageKey: "auditur-dashboard-auth",
     },

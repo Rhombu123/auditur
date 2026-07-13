@@ -5,16 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
-import { EmailOtpForm } from "@/components/auth/EmailOtpForm";
+import { EmailAuthForm } from "@/components/auth/EmailAuthForm";
 import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
-  const { session, loading, sendEmailCode, verifyEmailCode } = useAuth();
+  const { session, loading, sendSignInLink } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!loading && session) {
-      router.replace("/dashboard");
+      router.replace("/dashboard/");
     }
   }, [loading, session, router]);
 
@@ -24,21 +24,17 @@ export default function LoginPage() {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Sign in with the email you use on the Auditur mobile app. We'll send a one-time code — no password needed."
+      subtitle="Sign in with the email you use on the Auditur mobile app. We'll email a Confirm link — no password or code."
       footer={
         <>
           Don&apos;t have an account?{" "}
-          <Link href="/signup">Create one for free</Link>
+          <Link href="/signup/">Create one for free</Link>
         </>
       }
     >
-      <EmailOtpForm
+      <EmailAuthForm
         mode="login"
-        onSendCode={(email) => sendEmailCode(email, "login")}
-        onVerify={async (email, code) => {
-          await verifyEmailCode(email, code);
-          router.replace("/dashboard");
-        }}
+        onSendLink={(email) => sendSignInLink(email, "login")}
       />
     </AuthShell>
   );
