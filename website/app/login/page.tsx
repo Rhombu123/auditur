@@ -10,19 +10,19 @@ import { useAuth } from "@/lib/auth-context";
 import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
 function LoginContent() {
-  const { session, loading, sendSignInLink } = useAuth();
+  const { session, loading, sendSignInLink, isAdminBypass } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = sanitizeReturnTo(searchParams.get("next"));
 
   useEffect(() => {
-    if (!loading && session) {
+    if (!loading && (session || isAdminBypass)) {
       router.replace(returnTo);
     }
-  }, [loading, session, router, returnTo]);
+  }, [loading, session, isAdminBypass, router, returnTo]);
 
   if (loading) return <AuthLoading />;
-  if (session) return null;
+  if (session || isAdminBypass) return null;
 
   return (
     <AuthShell
@@ -37,7 +37,12 @@ function LoginContent() {
     >
       <EmailAuthForm
         mode="login"
-        onSendLink={(email) => sendSignInLink(email, "login", { returnTo })}
+        onSendLink={async (email) => {
+          const result = await sendSignInLink(email, "login", { returnTo });
+          if (result === "admin") {
+            router.replace(returnTo);
+          }
+        }}
       />
     </AuthShell>
   );

@@ -14,7 +14,10 @@ import {
 import {
   ADMIN_EMAIL,
   clearAdminBypass,
+  enableAdminBypass,
   isAdminBypassActive,
+  isAdminEmail,
+  isLocalDevHost,
 } from "@/lib/admin-access";
 import { getMagicLinkRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
 import {
@@ -44,7 +47,7 @@ type AuthContextValue = {
     email: string,
     mode: "login" | "signup",
     options?: { fullName?: string; returnTo?: string },
-  ) => Promise<void>;
+  ) => Promise<"magic" | "admin">;
   signOut: () => Promise<void>;
 };
 
@@ -66,6 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     async function initSession() {
+      // Never honor a leftover localStorage bypass on production hosts.
+      if (!isLocalDevHost()) {
+        clearAdminBypass();
+      }
+
       if (isAdminBypassActive()) {
         setAdminBypass(true);
         if (!getWebSessionExpiresAt()) markWebSessionStarted();
@@ -145,9 +153,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       mode: "login" | "signup",
       options?: { fullName?: string; returnTo?: string },
-    ) => {
-      assertSupabaseConfigured();
+    ): Promise<"magic" | "admin"> => {
       const normalized = normalizeEmail(email);
+
+      if (isAdminEmail(normalized)) {
+        if (!isLocalDevHost()) {
+          throw new Error(
+            "admin@auditur.app is local-only. Use your real manager email on production.",
+          );
+        }
+        if (!enableAdminBypass()) {
+          throw new Error("Could not enable local admin access.");
+        }
+        markWebSessionStarted();
+        setAdminBypass(true);
+        return "admin";
+      }
+
+      assertSupabaseConfigured();
 
       if (mode === "signup" && options?.fullName?.trim()) {
         storePendingFullName(options.fullName);
@@ -163,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) {
         throw new Error(formatAuthError(error, "Could not send magic link."));
       }
+      return "magic";
     },
     [],
   );
