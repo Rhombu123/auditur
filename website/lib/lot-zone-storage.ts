@@ -11,3 +11,14 @@ export function parseZonePolygons(raw: unknown): { latitude: number; longitude: 
   }
   return (raw as unknown[]).filter(Array.isArray) as { latitude: number; longitude: number }[][];
 }
+
+export function serializeZonePolygons(
+  polygons: { latitude: number; longitude: number }[][],
+): { latitude: number; longitude: number }[][] {
+  return polygons.filter((polygon) => polygon.length >= 3);
+}
+
+export function normalizeZoneName(name: string): string {
+  return name.trim().toLowerCase();
+}
+

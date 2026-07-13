@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AuditDial } from "@/components/tarmac/AuditDial";
+import { AuditPanel } from "@/components/tarmac/AuditPanel";
+import { MapPanel } from "@/components/tarmac/MapPanel";
 import { MissingMarquee } from "@/components/tarmac/MissingMarquee";
 import { ScanFeed } from "@/components/tarmac/ScanFeed";
+import { UploadPanel } from "@/components/tarmac/UploadPanel";
 import { UploadStrip } from "@/components/tarmac/UploadStrip";
+import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
 import { displayName, useAuth } from "@/lib/auth-context";
 import { tarmac } from "@/lib/tarmac-theme";
@@ -16,9 +20,20 @@ import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
 import { fetchDashboardData } from "@/lib/web-api";
 import { supabaseConfigured } from "@/lib/supabase-browser";
 
+type TabId = "overview" | "audit" | "upload" | "vehicles" | "map";
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "audit", label: "Audit" },
+  { id: "upload", label: "Uploads" },
+  { id: "vehicles", label: "Vehicles" },
+  { id: "map", label: "Map" },
+];
+
 export function TarmacDashboard() {
   const { user, signOut } = useAuth();
   const router = useRouter();
+  const [tab, setTab] = useState<TabId>("overview");
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +79,10 @@ export function TarmacDashboard() {
     router.replace("/login");
   }
 
+  const refresh = useCallback(async () => {
+    await load({ silent: true });
+  }, [load]);
+
   const audit = data?.audit;
   const today = new Date().toLocaleDateString([], {
     weekday: "long",
@@ -98,41 +117,70 @@ export function TarmacDashboard() {
         </div>
       </header>
 
+      <nav className="tabs" aria-label="Dashboard sections">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={tab === item.id ? "tab active" : "tab"}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
       {error ? <p className="error-banner">{error}</p> : null}
 
       {loading && !data ? (
         <p className="loading">Syncing field data from phones…</p>
       ) : (
         <>
-          <div className="stat-strip">
-            <div>
-              <strong>{data?.totalPinnedVehicles ?? 0}</strong>
-              <span>Pinned on map</span>
-            </div>
-            <div>
-              <strong>{audit?.scannedNotOnListCount ?? 0}</strong>
-              <span>Not on list</span>
-            </div>
-            <div>
-              <strong>{data?.zoneStats.length ?? 0}</strong>
-              <span>Lot sections</span>
-            </div>
-          </div>
+          {tab === "overview" ? (
+            <>
+              <div className="stat-strip">
+                <div>
+                  <strong>{data?.totalPinnedVehicles ?? 0}</strong>
+                  <span>Pinned on map</span>
+                </div>
+                <div>
+                  <strong>{audit?.scannedNotOnListCount ?? 0}</strong>
+                  <span>Not on list</span>
+                </div>
+                <div>
+                  <strong>{data?.zoneStats.length ?? 0}</strong>
+                  <span>Lot sections</span>
+                </div>
+              </div>
 
-          <div className="bays">
-            <AuditDial
-              percent={audit?.completionPercent ?? 0}
-              expected={audit?.expectedCount ?? 0}
-              scanned={audit?.scannedTodayCount ?? 0}
-              missing={audit?.notScannedTodayCount ?? 0}
-              fileName={audit?.inventoryFileName ?? null}
-            />
-            <ScanFeed scans={data?.recentScans ?? []} />
-            <ZoneBays zones={data?.zoneStats ?? []} />
-          </div>
+              <div className="bays">
+                <AuditDial
+                  percent={audit?.completionPercent ?? 0}
+                  expected={audit?.expectedCount ?? 0}
+                  scanned={audit?.scannedTodayCount ?? 0}
+                  missing={audit?.notScannedTodayCount ?? 0}
+                  fileName={audit?.inventoryFileName ?? null}
+                />
+                <ScanFeed scans={data?.recentScans ?? []} />
+                <ZoneBays zones={data?.zoneStats ?? []} />
+              </div>
 
-          <MissingMarquee vehicles={audit?.missingToday ?? []} />
-          <UploadStrip uploads={data?.uploadLog ?? []} />
+              <MissingMarquee vehicles={audit?.missingToday ?? []} />
+              <UploadStrip uploads={data?.uploadLog ?? []} />
+            </>
+          ) : null}
+
+          {tab === "audit" && data ? (
+            <AuditPanel data={data} onRefresh={refresh} />
+          ) : null}
+
+          {tab === "upload" ? (
+            <UploadPanel uploads={data?.uploadLog ?? []} onChanged={refresh} />
+          ) : null}
+
+          {tab === "vehicles" ? <VehiclesPanel onChanged={refresh} /> : null}
+
+          {tab === "map" ? <MapPanel onChanged={refresh} /> : null}
         </>
       )}
 
@@ -164,7 +212,7 @@ export function TarmacDashboard() {
           justify-content: space-between;
           gap: 1rem;
           padding-bottom: 1.25rem;
-          margin-bottom: 1.25rem;
+          margin-bottom: 0.85rem;
           border-bottom: 1px solid ${tarmac.line};
         }
 
@@ -239,6 +287,32 @@ export function TarmacDashboard() {
           font-weight: 700;
           font-size: 0.82rem;
           cursor: pointer;
+        }
+
+        .tabs {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+          margin-bottom: 1.1rem;
+        }
+
+        .tab {
+          border: 1px solid ${tarmac.line};
+          background: transparent;
+          color: ${tarmac.slate};
+          border-radius: 999px;
+          padding: 0.45rem 0.9rem;
+          font-size: 0.8rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .tab.active {
+          color: ${tarmac.teal};
+          border-color: ${tarmac.teal};
+          background: rgba(13, 148, 136, 0.12);
         }
 
         .error-banner {
