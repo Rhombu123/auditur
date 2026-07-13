@@ -21,12 +21,12 @@ export const supabase: SupabaseClient = createClient(
 );
 
 export function supabaseConfigured(): boolean {
-  return Boolean(supabaseUrl && supabaseKey);
+  return Boolean(supabaseUrl && supabaseKey && !supabaseUrl.includes("placeholder"));
 }
 
 export function assertSupabaseConfigured(): void {
   if (supabaseConfigured()) return;
   throw new Error(
-    "Supabase is not configured in this build. Run website build/dev after setting NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (Vercel: set vars and redeploy).",
+    "Supabase is not configured in this build. Open the auditur-ruby Vercel project, confirm Production env vars, then Redeploy from the latest main commit (not an old deployment).",
   );
 }

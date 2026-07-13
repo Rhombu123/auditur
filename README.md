@@ -75,9 +75,9 @@ Set these on Vercel (and in `website/.env.local` for local dev):
 - Site URL: `https://auditur-ruby.vercel.app`
 - Redirect URLs: `https://auditur-ruby.vercel.app/**`
 
-After changing Vercel env vars, **redeploy** (static export bakes env at build time).
+**Production host:** `https://auditur-ruby.vercel.app` (not `auditur.vercel.app`).
 
-Deploy with `npm run build:website` via `vercel.json` — API routes remain at `/api/*`.
+If login works locally but production says Supabase is not configured, production is almost always serving an **old static build**. Check Deployments on the **auditur-ruby** Vercel project and confirm the latest successful deploy is from current `main`. Setting env vars does nothing until that project rebuilds.
 
 
 Deploy the API to Vercel with these env vars:

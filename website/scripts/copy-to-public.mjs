@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,14 @@ if (!existsSync(outDir)) {
   process.exit(1);
 }
 
+// Replace previous static export so stale chunks cannot keep serving placeholders.
 mkdirSync(publicDir, { recursive: true });
+for (const name of ["_next", "login", "signup", "dashboard", "404"]) {
+  rmSync(join(publicDir, name), { recursive: true, force: true });
+}
+for (const name of ["index.html", "index.txt", "404.html", "login.html", "signup.html", "dashboard.html"]) {
+  rmSync(join(publicDir, name), { force: true });
+}
+
 cpSync(outDir, publicDir, { recursive: true });
-console.log("Copied website/out → public/");
+console.log("Copied website/out → public/ (replaced prior marketing export)");
