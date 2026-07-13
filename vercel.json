@@ -4,11 +4,7 @@
   "buildCommand": "npm run build:website",
   "outputDirectory": "public",
   "cleanUrls": true,
-  "rewrites": [
-    { "source": "/login", "destination": "/login.html" },
-    { "source": "/signup", "destination": "/signup.html" },
-    { "source": "/dashboard", "destination": "/dashboard.html" }
-  ],
+  "trailingSlash": true,
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 60,

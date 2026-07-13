@@ -1,8 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-/** Static access only — Next.js inlines NEXT_PUBLIC_* at compile time (dynamic lookup fails). */
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || undefined;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || undefined;
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/generated/supabase-env";
+
+const supabaseUrl = SUPABASE_URL || undefined;
+const supabaseKey = SUPABASE_ANON_KEY || undefined;
 
 export const supabase: SupabaseClient = createClient(
   supabaseUrl ?? "https://placeholder.supabase.co",
@@ -25,6 +26,6 @@ export function supabaseConfigured(): boolean {
 export function assertSupabaseConfigured(): void {
   if (supabaseConfigured()) return;
   throw new Error(
-    "Supabase is not configured in this build. Local: add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to website/.env.local. Vercel: set the same vars, then redeploy (static export embeds env at build time).",
+    "Supabase is not configured in this build. Run website build/dev after setting NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (Vercel: set vars and redeploy).",
   );
 }

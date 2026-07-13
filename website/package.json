@@ -3,9 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "next dev --port 5173",
-    "dev:clean": "rm -rf .next && next dev --port 5173",
-    "build": "node scripts/verify-env.mjs && next build && node scripts/copy-to-public.mjs",
+    "dev": "node scripts/generate-supabase-env.mjs && next dev --port 5173",
+    "dev:clean": "node scripts/generate-supabase-env.mjs && rm -rf .next && next dev --port 5173",
+    "build": "node scripts/generate-supabase-env.mjs && next build && node scripts/copy-to-public.mjs",
     "start": "next start"
   },
   "dependencies": {
