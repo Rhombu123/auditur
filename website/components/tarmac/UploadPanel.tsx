@@ -54,7 +54,7 @@ export function UploadPanel({
 
   return (
     <div className="panel">
-      <div className="hero">
+      <div className="desk-panel-hero">
         <div>
           <h2>Price list uploads</h2>
           <p>
@@ -64,7 +64,7 @@ export function UploadPanel({
         </div>
         <button
           type="button"
-          className="primary"
+          className="ui-btn ui-btn-primary"
           disabled={busy}
           onClick={() => inputRef.current?.click()}
         >
@@ -105,7 +105,7 @@ export function UploadPanel({
                 </button>
                 <button
                   type="button"
-                  className="danger"
+                  className="ui-btn ui-btn-danger"
                   disabled={busy}
                   onClick={() => void handleDelete(upload.id, upload.fileName)}
                 >
@@ -118,40 +118,26 @@ export function UploadPanel({
       </div>
       <style jsx>{`
         .panel { position: relative; z-index: 1; }
-        .hero {
-          display:flex; flex-wrap:wrap; justify-content:space-between; gap:1rem;
-          margin-bottom:1rem; padding:1rem; border:1px solid ${tarmac.line};
-          border-radius:10px; background:${tarmac.asphaltCard};
-        }
-        h2 { margin:0; font-size:1.05rem; }
-        .hero p { margin:0.35rem 0 0; color:${tarmac.slate}; font-size:0.86rem; max-width:36rem; }
-        .primary {
-          align-self:center; border:none; border-radius:999px; padding:0.7rem 1rem;
-          background:${tarmac.teal}; color:#042f2e; font-weight:800; cursor:pointer;
-        }
         .list { display:grid; gap:0.5rem; }
         .row {
           display:flex; justify-content:space-between; gap:1rem; align-items:center;
           padding:0.8rem 0.95rem; border:1px solid ${tarmac.lineDim}; border-radius:10px;
-          background:${tarmac.asphaltCard};
+          background:${tarmac.surface};
         }
         .row.selected {
-          border-color: ${tarmac.teal};
-          background: rgba(13,148,136,0.1);
+          border-color: #99e6dc;
+          background: ${tarmac.tealSoft};
         }
         .select {
           border: none; background: transparent; color: inherit; font: inherit;
           text-align: left; cursor: pointer; padding: 0; flex: 1;
         }
-        .select strong { display:flex; align-items:center; gap:0.5rem; font-size:0.92rem; }
-        .select span { display:block; color:#cbd5e1; font-size:0.78rem; margin-top:0.2rem; }
+        .select strong { display:flex; align-items:center; gap:0.5rem; font-size:0.92rem; color:${tarmac.text}; }
+        .select span { display:block; color:${tarmac.slate}; font-size:0.78rem; margin-top:0.2rem; }
         .badge {
           font-size:0.62rem; text-transform:uppercase; letter-spacing:0.06em;
-          color:${tarmac.teal}; border:1px solid ${tarmac.teal}; border-radius:999px; padding:0.12rem 0.45rem;
-        }
-        .danger {
-          border:1px solid rgba(248,113,113,0.45); background:transparent; color:${tarmac.danger};
-          border-radius:999px; padding:0.45rem 0.7rem; font-weight:700; cursor:pointer;
+          color:${tarmac.tealDeep}; border:1px solid #99e6dc; border-radius:999px; padding:0.12rem 0.45rem;
+          background: ${tarmac.surface};
         }
         .empty, .err { color:${tarmac.slate}; }
         .err { color:${tarmac.danger}; margin-bottom:0.75rem; }

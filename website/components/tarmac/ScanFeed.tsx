@@ -52,13 +52,14 @@ export function ScanFeed({ scans }: { scans: ScanFeedItem[] }) {
 
       <style jsx>{`
         .feed-bay {
-          background: ${tarmac.asphaltCard};
-          border: 1px solid ${tarmac.line};
-          border-radius: 8px;
+          background: ${tarmac.surface};
+          border: 1px solid ${tarmac.lineDim};
+          border-radius: 10px;
           padding: 1.25rem;
           min-height: 320px;
           display: flex;
           flex-direction: column;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
         }
 
         .feed-head {
@@ -70,10 +71,10 @@ export function ScanFeed({ scans }: { scans: ScanFeedItem[] }) {
 
         .bay-label {
           font-size: 0.65rem;
-          font-weight: 800;
-          letter-spacing: 0.14em;
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
         }
 
         .live-dot {
@@ -81,7 +82,6 @@ export function ScanFeed({ scans }: { scans: ScanFeedItem[] }) {
           height: 8px;
           border-radius: 50%;
           background: ${tarmac.success};
-          box-shadow: 0 0 10px ${tarmac.tealGlow};
           animation: blink 1.4s ease-in-out infinite;
         }
 
@@ -109,8 +109,8 @@ export function ScanFeed({ scans }: { scans: ScanFeedItem[] }) {
         .feed-row {
           padding: 0.75rem 0.85rem;
           border-left: 3px solid ${tarmac.teal};
-          background: ${tarmac.asphaltLight};
-          border-radius: 0 6px 6px 0;
+          background: ${tarmac.surfaceMuted};
+          border-radius: 0 8px 8px 0;
         }
 
         .row-main {
@@ -142,7 +142,7 @@ export function ScanFeed({ scans }: { scans: ScanFeedItem[] }) {
         }
 
         .zone {
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.06em;

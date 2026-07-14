@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -13,13 +12,13 @@ import { UploadPanel } from "@/components/tarmac/UploadPanel";
 import { UploadStrip } from "@/components/tarmac/UploadStrip";
 import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
+import "@/components/tarmac/dashboard.css";
 import { displayName, useAuth } from "@/lib/auth-context";
 import { isDemoLotEnabled, resetDemoLot } from "@/lib/demo-store";
 import {
   loadSelectedUploadId,
   saveSelectedUploadId,
 } from "@/lib/selected-upload";
-import { tarmac } from "@/lib/tarmac-theme";
 import type { DashboardData } from "@/lib/types";
 import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
 import { fetchDashboardData } from "@/lib/web-api";
@@ -35,6 +34,33 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "map", label: "Map" },
   { id: "members", label: "Members" },
 ];
+
+const TITLES: Record<TabId, { title: string; blurb: string }> = {
+  overview: {
+    title: "Lot overview",
+    blurb: "Completion, live scans, and section activity for the selected price list.",
+  },
+  audit: {
+    title: "Audit",
+    blurb: "Missing, off-list, and scanned vehicles for today’s walk.",
+  },
+  upload: {
+    title: "Uploads",
+    blurb: "Manage price-list PDFs and switch which list drives the audit.",
+  },
+  vehicles: {
+    title: "Vehicles",
+    blurb: "Edit scanned records and browse inventory from the active list.",
+  },
+  map: {
+    title: "Lot map",
+    blurb: "Lock the camera, paint sections, and find units by VIN.",
+  },
+  members: {
+    title: "Members",
+    blurb: "Invite employees by Auditur ID and manage roles.",
+  },
+};
 
 export function TarmacDashboard() {
   const { user, signOut, isAdminBypass } = useAuth();
@@ -128,383 +154,147 @@ export function TarmacDashboard() {
     month: "long",
     day: "numeric",
   });
+  const page = TITLES[tab];
 
   return (
-    <div className="deck">
-      <div className="grid-bg" aria-hidden />
-      <header className="command-bar">
-        <div>
-          <span className="deck-tag">Tarmac · Mission control</span>
-          <h1>LOT STATUS</h1>
-          <p>{today}</p>
-        </div>
-        <div className="command-right">
-          <div className="manager">
-            <span className="mgr-label">{isAdminBypass ? "Admin" : "Manager"}</span>
-            <strong>{displayName(user)}</strong>
+    <div className="desk">
+      <aside className="desk-sidebar">
+        <div className="desk-brand">
+          <span className="desk-brand-mark">A</span>
+          <div className="desk-brand-copy">
+            <strong>Auditur</strong>
+            <span>Lot desk</span>
           </div>
-          {syncing ? <span className="sync-pill">Syncing…</span> : null}
-          <motion.button
-            type="button"
-            className="signout"
-            onClick={() => void handleSignOut()}
-            whileHover={{ scale: 1.03, y: -1 }}
-            whileTap={{ scale: 0.97 }}
-          >
-            Sign out
-          </motion.button>
         </div>
-      </header>
+        <nav className="desk-nav" aria-label="Dashboard sections">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={tab === item.id ? "desk-nav-btn active" : "desk-nav-btn"}
+              onClick={() => setTab(item.id)}
+            >
+              <span className="desk-nav-dot" aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      {demoMode ? (
-        <div className="demo-banner">
+      <div className="desk-main">
+        <header className="desk-topbar">
           <div>
-            <strong>Demo lot loaded</strong>
-            <span>
-              Sample inventory, scans, and zones. Edits stay in this browser so you can poke around.
-            </span>
+            <h1>{page.title}</h1>
+            <p>
+              {today} · {page.blurb}
+            </p>
           </div>
-          <button
-            type="button"
-            className="demo-reset"
-            onClick={() => {
-              resetDemoLot();
-              void load({ uploadId: null });
-            }}
-          >
-            Reset demo
-          </button>
-        </div>
-      ) : null}
+          <div className="desk-top-actions">
+            <div className="desk-user">
+              <span>{isAdminBypass ? "Admin" : "Signed in"}</span>
+              <strong>{displayName(user)}</strong>
+            </div>
+            {syncing ? <span className="desk-sync">Syncing…</span> : null}
+            <button type="button" className="ui-btn ui-btn-secondary" onClick={() => void handleSignOut()}>
+              Sign out
+            </button>
+          </div>
+        </header>
 
-      <nav className="tabs" aria-label="Dashboard sections">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={tab === item.id ? "tab active" : "tab"}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+        <div className="desk-body">
+          {demoMode ? (
+            <div className="desk-banner">
+              <div>
+                <strong>Demo lot loaded</strong>
+                <span>
+                  Sample inventory, scans, and zones. Edits stay in this browser so you can explore.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="ui-btn ui-btn-secondary"
+                onClick={() => {
+                  resetDemoLot();
+                  void load({ uploadId: null });
+                }}
+              >
+                Reset demo
+              </button>
+            </div>
+          ) : null}
 
-      {error ? <p className="error-banner">{error}</p> : null}
+          {error ? <p className="desk-error">{error}</p> : null}
 
-      {loading && !data ? (
-        <p className="loading">Syncing field data from phones…</p>
-      ) : (
-        <>
-          {tab === "overview" ? (
+          {loading && !data ? (
+            <p className="desk-loading">Loading lot data…</p>
+          ) : (
             <>
-              <div className="stat-strip">
-                <div>
-                  <strong>{data?.totalPinnedVehicles ?? 0}</strong>
-                  <span>Pinned on map</span>
-                </div>
-                <div>
-                  <strong>{audit?.scannedNotOnListCount ?? 0}</strong>
-                  <span>Not on list</span>
-                </div>
-                <div>
-                  <strong>{data?.zoneStats.length ?? 0}</strong>
-                  <span>Lot sections</span>
-                </div>
-              </div>
+              {tab === "overview" ? (
+                <>
+                  <div className="desk-kpis">
+                    <div className="desk-kpi">
+                      <strong>{data?.totalPinnedVehicles ?? 0}</strong>
+                      <span>Pinned on map</span>
+                    </div>
+                    <div className="desk-kpi">
+                      <strong>{audit?.scannedNotOnListCount ?? 0}</strong>
+                      <span>Not on list</span>
+                    </div>
+                    <div className="desk-kpi">
+                      <strong>{data?.zoneStats.length ?? 0}</strong>
+                      <span>Lot sections</span>
+                    </div>
+                  </div>
 
-              <div className="bays">
-                <AuditDial
-                  percent={audit?.completionPercent ?? 0}
-                  expected={audit?.expectedCount ?? 0}
-                  scanned={audit?.scannedTodayCount ?? 0}
-                  missing={audit?.notScannedTodayCount ?? 0}
-                  fileName={audit?.inventoryFileName ?? null}
-                />
-                <ScanFeed scans={data?.recentScans ?? []} />
-                <ZoneBays
-                  zones={data?.zoneStats ?? []}
-                  onSelectZone={handleSelectZone}
-                />
-              </div>
+                  <div className="desk-grid">
+                    <AuditDial
+                      percent={audit?.completionPercent ?? 0}
+                      expected={audit?.expectedCount ?? 0}
+                      scanned={audit?.scannedTodayCount ?? 0}
+                      missing={audit?.notScannedTodayCount ?? 0}
+                      fileName={audit?.inventoryFileName ?? null}
+                    />
+                    <ScanFeed scans={data?.recentScans ?? []} />
+                    <ZoneBays
+                      zones={data?.zoneStats ?? []}
+                      onSelectZone={handleSelectZone}
+                    />
+                  </div>
 
-              <UploadStrip
-                uploads={data?.uploadLog ?? []}
-                selectedUploadId={selectedUploadId}
-                onSelect={(id) => void handleSelectUpload(id)}
-              />
+                  <UploadStrip
+                    uploads={data?.uploadLog ?? []}
+                    selectedUploadId={selectedUploadId}
+                    onSelect={(id) => void handleSelectUpload(id)}
+                  />
+                </>
+              ) : null}
+
+              {tab === "audit" && data ? <AuditPanel data={data} onRefresh={refresh} /> : null}
+
+              {tab === "upload" ? (
+                <UploadPanel
+                  uploads={data?.uploadLog ?? []}
+                  onChanged={refresh}
+                  selectedUploadId={selectedUploadId}
+                  onSelectUpload={(id) => void handleSelectUpload(id)}
+                />
+              ) : null}
+
+              {tab === "vehicles" ? <VehiclesPanel onChanged={refresh} /> : null}
+
+              {tab === "map" ? (
+                <MapPanel
+                  onChanged={refresh}
+                  focusZoneId={focusZoneId}
+                  onFocusZone={setFocusZoneId}
+                />
+              ) : null}
+
+              {tab === "members" ? <MembersPanel /> : null}
             </>
-          ) : null}
-
-          {tab === "audit" && data ? (
-            <AuditPanel data={data} onRefresh={refresh} />
-          ) : null}
-
-          {tab === "upload" ? (
-            <UploadPanel
-              uploads={data?.uploadLog ?? []}
-              onChanged={refresh}
-              selectedUploadId={selectedUploadId}
-              onSelectUpload={(id) => void handleSelectUpload(id)}
-            />
-          ) : null}
-
-          {tab === "vehicles" ? <VehiclesPanel onChanged={refresh} /> : null}
-
-          {tab === "map" ? (
-            <MapPanel
-              onChanged={refresh}
-              focusZoneId={focusZoneId}
-              onFocusZone={setFocusZoneId}
-            />
-          ) : null}
-
-          {tab === "members" ? <MembersPanel /> : null}
-        </>
-      )}
-
-      <style jsx>{`
-        .deck {
-          min-height: 100vh;
-          background: ${tarmac.asphalt};
-          color: ${tarmac.text};
-          padding: 1.6rem clamp(1.15rem, 3.4vw, 2.4rem) 3.5rem;
-          position: relative;
-        }
-
-        .grid-bg {
-          position: fixed;
-          inset: 0;
-          pointer-events: none;
-          background-image:
-            linear-gradient(${tarmac.lineDim} 1px, transparent 1px),
-            linear-gradient(90deg, ${tarmac.lineDim} 1px, transparent 1px);
-          background-size: 64px 64px;
-          opacity: 0.35;
-        }
-
-        .command-bar {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: space-between;
-          gap: 1.25rem;
-          padding: 0.35rem 0 1.4rem;
-          margin-bottom: 1.1rem;
-          border-bottom: 1px solid ${tarmac.line};
-        }
-
-        .deck-tag {
-          font-size: 0.65rem;
-          font-weight: 800;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: ${tarmac.teal};
-        }
-
-        h1 {
-          margin: 0.4rem 0 0;
-          font-family: var(--font-mono), monospace;
-          font-size: clamp(1.6rem, 4vw, 2.2rem);
-          letter-spacing: 0.12em;
-          font-weight: 900;
-        }
-
-        .command-bar p {
-          margin: 0.35rem 0 0;
-          color: ${tarmac.slate};
-          font-size: 0.88rem;
-        }
-
-        .command-right {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-        }
-
-        .manager {
-          text-align: right;
-          padding-right: 0.25rem;
-        }
-
-        .mgr-label {
-          display: block;
-          font-size: 0.65rem;
-          color: ${tarmac.slate};
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-
-        .manager strong {
-          font-size: 0.95rem;
-        }
-
-        .sync-pill {
-          font-size: 0.68rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: ${tarmac.teal};
-          padding: 0.4rem 0.7rem;
-          border: 1px solid ${tarmac.line};
-          border-radius: 999px;
-          animation: pulse-sync 1s ease-in-out infinite;
-        }
-
-        @keyframes pulse-sync {
-          50% {
-            opacity: 0.45;
-          }
-        }
-
-        .signout {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0.72rem 1.2rem;
-          border-radius: 999px;
-          border: 1px solid ${tarmac.line};
-          background:
-            linear-gradient(180deg, rgba(13, 148, 136, 0.22), rgba(13, 148, 136, 0.08)),
-            ${tarmac.asphaltCard};
-          color: ${tarmac.teal};
-          font-weight: 800;
-          font-size: 0.72rem;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          cursor: pointer;
-          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-        }
-
-        .demo-banner {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: space-between;
-          gap: 0.85rem;
-          align-items: center;
-          margin-bottom: 1.15rem;
-          padding: 0.95rem 1.1rem;
-          border-radius: 10px;
-          border: 1px dashed ${tarmac.line};
-          background: rgba(13, 148, 136, 0.1);
-        }
-
-        .demo-banner strong {
-          display: block;
-          color: ${tarmac.teal};
-          font-size: 0.82rem;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-        }
-
-        .demo-banner span {
-          display: block;
-          margin-top: 0.2rem;
-          color: ${tarmac.slate};
-          font-size: 0.84rem;
-          line-height: 1.4;
-          max-width: 40rem;
-        }
-
-        .demo-reset {
-          border: 1px solid ${tarmac.line};
-          background: transparent;
-          color: ${tarmac.text};
-          border-radius: 8px;
-          padding: 0.55rem 0.85rem;
-          font-weight: 700;
-          cursor: pointer;
-        }
-
-        .tabs {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.55rem;
-          margin-bottom: 1.35rem;
-        }
-
-        .tab {
-          border: 1px solid ${tarmac.line};
-          background: transparent;
-          color: ${tarmac.slate};
-          border-radius: 999px;
-          padding: 0.55rem 1rem;
-          font-size: 0.8rem;
-          font-weight: 700;
-          cursor: pointer;
-        }
-
-        .tab.active {
-          color: ${tarmac.teal};
-          border-color: ${tarmac.teal};
-          background: rgba(13, 148, 136, 0.12);
-        }
-
-        .error-banner {
-          background: rgba(248, 113, 113, 0.12);
-          border: 1px solid rgba(248, 113, 113, 0.35);
-          color: ${tarmac.danger};
-          padding: 0.85rem 1.05rem;
-          border-radius: 10px;
-          margin-bottom: 1.15rem;
-        }
-
-        .loading {
-          color: ${tarmac.slate};
-          font-size: 0.9rem;
-          padding: 1rem 0;
-        }
-
-        .stat-strip {
-          position: relative;
-          z-index: 1;
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 0.85rem;
-          margin-bottom: 1.25rem;
-        }
-
-        .stat-strip div {
-          padding: 1.05rem 0.9rem;
-          background: ${tarmac.asphaltCard};
-          border: 1px solid ${tarmac.lineDim};
-          border-radius: 10px;
-          text-align: center;
-        }
-
-        .stat-strip strong {
-          display: block;
-          font-family: var(--font-mono), monospace;
-          font-size: 1.35rem;
-        }
-
-        .stat-strip span {
-          font-size: 0.68rem;
-          color: ${tarmac.slate};
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-
-        .bays {
-          position: relative;
-          z-index: 1;
-          display: grid;
-          gap: 1.15rem;
-          margin-bottom: 1.25rem;
-        }
-
-        @media (min-width: 1024px) {
-          .bays {
-            grid-template-columns: 280px 1fr 260px;
-            align-items: start;
-          }
-        }
-      `}</style>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

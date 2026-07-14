@@ -77,12 +77,13 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
 
       <style jsx>{`
         .dial-bay {
-          background: ${tarmac.asphaltCard};
-          border: 1px solid ${tarmac.line};
+          background: ${tarmac.surface};
+          border: 1px solid ${tarmac.lineDim};
           border-radius: 10px;
           padding: 1.25rem;
           position: relative;
           overflow: hidden;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
         }
 
         .dial-bay::before {
@@ -97,10 +98,10 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
 
         .bay-label {
           font-size: 0.65rem;
-          font-weight: 800;
-          letter-spacing: 0.14em;
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
         }
 
         .dial-wrap {
@@ -116,7 +117,7 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
 
         .dial-svg :global(.track) {
           fill: none;
-          stroke: rgba(148, 163, 184, 0.22);
+          stroke: ${tarmac.line};
           stroke-width: 12;
         }
 
@@ -125,7 +126,6 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
           stroke: ${tarmac.teal};
           stroke-width: 12;
           stroke-linecap: round;
-          filter: drop-shadow(0 0 10px ${tarmac.tealGlow});
         }
 
         .dial-center {
@@ -138,19 +138,19 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
         }
 
         .pct {
-          font-family: var(--font-mono), monospace;
           font-size: 2.4rem;
           font-weight: 800;
           color: ${tarmac.text};
           line-height: 1;
+          letter-spacing: -0.04em;
         }
 
         .pct-label {
           font-size: 0.7rem;
           font-weight: 700;
-          letter-spacing: 0.1em;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: #cbd5e1;
+          color: ${tarmac.slate};
           margin-top: 0.25rem;
         }
 
@@ -163,14 +163,14 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
 
         .dial-stats strong {
           display: block;
-          font-family: var(--font-mono), monospace;
           font-size: 1.25rem;
           color: ${tarmac.text};
+          letter-spacing: -0.02em;
         }
 
         .dial-stats span {
           font-size: 0.68rem;
-          color: #cbd5e1;
+          color: ${tarmac.slate};
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
@@ -194,8 +194,8 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
           font-size: 0.65rem;
           letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: ${tarmac.teal};
-          font-weight: 800;
+          color: ${tarmac.tealDeep};
+          font-weight: 700;
         }
 
         .file.muted {

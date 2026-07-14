@@ -50,7 +50,7 @@ export function AuditPanel({ data, onRefresh }: Props) {
 
   return (
     <div className="panel">
-      <div className="hero">
+      <div className="desk-panel-hero">
         <div>
           <span className="label">Today’s audit</span>
           <strong className="pct">{audit.completionPercent}%</strong>
@@ -59,7 +59,12 @@ export function AuditPanel({ data, onRefresh }: Props) {
             {audit.inventoryFileName ? ` · ${audit.inventoryFileName}` : ""}
           </p>
         </div>
-        <button type="button" className="primary" disabled={exporting} onClick={() => void handleExport()}>
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary"
+          disabled={exporting}
+          onClick={() => void handleExport()}
+        >
           {exporting ? "Exporting…" : "Export highlighted PDF"}
         </button>
       </div>
@@ -75,13 +80,13 @@ export function AuditPanel({ data, onRefresh }: Props) {
           <button
             key={key}
             type="button"
-            className={list === key ? "chip active" : "chip"}
+            className={list === key ? "ui-btn ui-btn-tool active" : "ui-btn ui-btn-tool"}
             onClick={() => setList(key)}
           >
             {label}
           </button>
         ))}
-        <button type="button" className="chip" onClick={() => void onRefresh()}>
+        <button type="button" className="ui-btn ui-btn-secondary" onClick={() => void onRefresh()}>
           Refresh
         </button>
       </div>
@@ -111,32 +116,33 @@ export function AuditPanel({ data, onRefresh }: Props) {
 
 const styles = `
   .panel { position: relative; z-index: 1; }
-  .hero {
-    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;
-    padding: 1.1rem; margin-bottom: 1rem;
-    background: ${tarmac.asphaltCard}; border: 1px solid ${tarmac.line}; border-radius: 8px;
+  .label {
+    display: block;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: ${tarmac.tealDeep};
+    font-weight: 700;
   }
-  .label { display:block; font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase; color:${tarmac.teal}; font-weight:800; }
-  .pct { display:block; font-family: var(--font-mono), monospace; font-size: 2rem; margin: 0.2rem 0; }
-  .hero p { margin: 0; color: ${tarmac.slate}; font-size: 0.88rem; max-width: 36rem; }
-  .primary {
-    align-self: center; padding: 0.7rem 1rem; border-radius: 6px; border: none;
-    background: ${tarmac.teal}; color: #042f2e; font-weight: 800; cursor: pointer;
+  .pct {
+    display: block;
+    font-size: 2rem;
+    margin: 0.2rem 0;
+    letter-spacing: -0.04em;
+    color: ${tarmac.text};
   }
-  .primary:disabled { opacity: 0.55; cursor: wait; }
-  .chips { display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom: 0.85rem; }
-  .chip {
-    border: 1px solid ${tarmac.line}; background: transparent; color: ${tarmac.slate};
-    border-radius: 999px; padding: 0.4rem 0.8rem; font-size: 0.78rem; font-weight: 700; cursor: pointer;
-  }
-  .chip.active { border-color: ${tarmac.teal}; color: ${tarmac.teal}; background: rgba(13,148,136,0.12); }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.85rem; }
   .table { display: grid; gap: 0.45rem; }
   .row {
-    display:flex; justify-content:space-between; gap:1rem; padding:0.75rem 0.9rem;
-    border: 1px solid ${tarmac.lineDim}; border-radius: 6px; background: ${tarmac.asphaltCard};
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid ${tarmac.lineDim};
+    border-radius: 8px;
+    background: ${tarmac.surface};
   }
-  .row strong { display:block; font-size: 0.92rem; }
+  .row strong { display: block; font-size: 0.92rem; color: ${tarmac.text}; }
   .row span { color: ${tarmac.slate}; font-size: 0.78rem; }
   .empty, .msg { color: ${tarmac.slate}; font-size: 0.88rem; }
-  .msg { margin-bottom: 0.75rem; color: ${tarmac.teal}; }
 `;

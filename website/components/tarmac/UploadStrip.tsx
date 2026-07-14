@@ -48,19 +48,20 @@ export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
 
       <style jsx>{`
         .strip {
-          background: ${tarmac.asphaltCard};
-          border: 1px solid ${tarmac.line};
+          background: ${tarmac.surface};
+          border: 1px solid ${tarmac.lineDim};
           border-radius: 10px;
           padding: 1rem 1.25rem;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
         }
 
         .label {
           display: block;
           font-size: 0.65rem;
-          font-weight: 800;
-          letter-spacing: 0.14em;
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
           margin-bottom: 0.75rem;
         }
 
@@ -75,7 +76,7 @@ export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
           flex: 0 0 auto;
           min-width: 210px;
           padding: 0.85rem 0.95rem;
-          background: ${tarmac.asphaltLight};
+          background: ${tarmac.surfaceMuted};
           border-radius: 8px;
           border: 1px solid ${tarmac.lineDim};
           text-align: left;
@@ -85,9 +86,8 @@ export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
         }
 
         .chip.selected {
-          border-color: ${tarmac.teal};
-          background: rgba(13, 148, 136, 0.12);
-          box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.25);
+          border-color: #99e6dc;
+          background: ${tarmac.tealSoft};
         }
 
         .file {
@@ -105,7 +105,7 @@ export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
           display: block;
           margin-top: 0.25rem;
           font-size: 0.72rem;
-          color: #cbd5e1;
+          color: ${tarmac.slate};
         }
 
         .empty {

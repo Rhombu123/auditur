@@ -52,19 +52,20 @@ export function ZoneBays({ zones, onSelectZone }: Props) {
 
       <style jsx>{`
         .zones-bay {
-          background: ${tarmac.asphaltCard};
-          border: 1px solid ${tarmac.line};
+          background: ${tarmac.surface};
+          border: 1px solid ${tarmac.lineDim};
           border-radius: 10px;
           padding: 1.25rem;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
         }
 
         .bay-label {
           display: block;
           font-size: 0.65rem;
-          font-weight: 800;
-          letter-spacing: 0.14em;
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
           margin-bottom: 1rem;
         }
 
@@ -80,7 +81,7 @@ export function ZoneBays({ zones, onSelectZone }: Props) {
           width: 100%;
           text-align: left;
           padding: 0.9rem 1rem;
-          background: ${tarmac.asphaltLight};
+          background: ${tarmac.surfaceMuted};
           border-radius: 8px;
           border: 1px solid ${tarmac.lineDim};
           border-left: 4px solid ${tarmac.teal};
@@ -94,8 +95,8 @@ export function ZoneBays({ zones, onSelectZone }: Props) {
         }
 
         .zone-card.clickable:hover {
-          background: #1a2330;
-          border-color: ${tarmac.line};
+          background: ${tarmac.tealSoft};
+          border-color: #99e6dc;
         }
 
         .swatch {
@@ -122,13 +123,12 @@ export function ZoneBays({ zones, onSelectZone }: Props) {
 
         .unit {
           font-size: 0.7rem;
-          color: #cbd5e1;
+          color: ${tarmac.slate};
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
 
         .count {
-          font-family: var(--font-mono), monospace;
           font-size: 1.45rem;
           font-weight: 800;
           color: ${tarmac.text};
@@ -137,6 +137,7 @@ export function ZoneBays({ zones, onSelectZone }: Props) {
           border-left: 1px solid ${tarmac.lineDim};
           min-width: 2.4rem;
           text-align: right;
+          letter-spacing: -0.03em;
         }
 
         .empty {

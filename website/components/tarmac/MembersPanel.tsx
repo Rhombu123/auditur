@@ -123,9 +123,9 @@ export function MembersPanel() {
 
   return (
     <div className="panel">
-      <div className="hero">
+      <div className="desk-panel-hero">
         <div>
-          <h2>Members & roles</h2>
+          <h2>Team access</h2>
           <p>
             Owners and GMs add employees by their 9-digit Auditur ID — no name or email needed once
             they’ve signed up.
@@ -154,6 +154,7 @@ export function MembersPanel() {
                 <label>
                   Employee Auditur ID
                   <input
+                    className="desk-input"
                     value={auditurId}
                     onChange={(e) => setAuditurId(e.target.value.replace(/\D/g, "").slice(0, 9))}
                     placeholder="9-digit ID"
@@ -163,7 +164,11 @@ export function MembersPanel() {
                 </label>
                 <label>
                   Role (optional)
-                  <select value={memberRoleId} onChange={(e) => setMemberRoleId(e.target.value)}>
+                  <select
+                    className="desk-select"
+                    value={memberRoleId}
+                    onChange={(e) => setMemberRoleId(e.target.value)}
+                  >
                     <option value="">No role yet</option>
                     {roles.map((role) => (
                       <option key={role.id} value={role.id}>
@@ -175,7 +180,7 @@ export function MembersPanel() {
               </div>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="ui-btn ui-btn-primary"
                 disabled={auditurId.length !== 9}
                 onClick={handleAddMember}
               >
@@ -206,6 +211,7 @@ export function MembersPanel() {
                   {canManageMembers ? (
                     <div className="row-actions">
                       <select
+                        className="desk-select"
                         value={member.roleId ?? ""}
                         onChange={(e) => {
                           assignMemberRole(member.id, e.target.value || null);
@@ -221,7 +227,7 @@ export function MembersPanel() {
                       </select>
                       <button
                         type="button"
-                        className="btn btn-danger"
+                        className="ui-btn ui-btn-danger"
                         onClick={() => {
                           removeMember(member.id);
                           reload();
@@ -244,6 +250,7 @@ export function MembersPanel() {
               <label>
                 Role name
                 <input
+                  className="desk-input"
                   value={roleName}
                   onChange={(e) => setRoleName(e.target.value)}
                   placeholder="Lot runner"
@@ -265,13 +272,13 @@ export function MembersPanel() {
                 ))}
               </div>
               <div className="row-actions">
-                <button type="button" className="btn btn-primary" onClick={handleSaveRole}>
+                <button type="button" className="ui-btn ui-btn-primary" onClick={handleSaveRole}>
                   {editingRoleId ? "Save role" : "Create role"}
                 </button>
                 {editingRoleId ? (
                   <button
                     type="button"
-                    className="btn btn-ghost"
+                    className="ui-btn ui-btn-secondary"
                     onClick={() => {
                       setEditingRoleId(null);
                       setRoleName("");
@@ -291,7 +298,7 @@ export function MembersPanel() {
             {roles.map((role) => {
               const assignees = members.filter((m) => m.roleId === role.id);
               return (
-                <div key={role.id} className="row role-row">
+                <div key={role.id} className="row">
                   <div>
                     <strong>{role.name}</strong>
                     <span>
@@ -306,14 +313,14 @@ export function MembersPanel() {
                     <div className="row-actions">
                       <button
                         type="button"
-                        className="btn btn-ghost"
+                        className="ui-btn ui-btn-secondary"
                         onClick={() => startEditRole(role)}
                       >
                         Edit
                       </button>
                       <button
                         type="button"
-                        className="btn btn-danger"
+                        className="ui-btn ui-btn-danger"
                         onClick={() => {
                           deleteRole(role.id);
                           if (editingRoleId === role.id) setEditingRoleId(null);
@@ -333,69 +340,82 @@ export function MembersPanel() {
 
       <style jsx>{`
         .panel { position: relative; z-index: 1; }
-        .hero {
-          margin-bottom: 1rem; padding: 1.15rem 1.2rem; border: 1px solid ${tarmac.line};
-          border-radius: 10px; background: ${tarmac.asphaltCard};
+        .id-line {
+          margin: 0.65rem 0 0 !important;
+          color: ${tarmac.text} !important;
+          font-size: 0.88rem !important;
         }
-        h2 { margin: 0; font-size: 1.05rem; }
-        h3 { margin: 0 0 0.85rem; font-size: 0.92rem; color: ${tarmac.teal}; text-transform: uppercase; letter-spacing: 0.08em; }
-        .hero p { margin: 0.4rem 0 0; color: ${tarmac.slate}; font-size: 0.86rem; max-width: 40rem; line-height: 1.45; }
-        .id-line { color: ${tarmac.text} !important; }
         .id-line strong {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
           letter-spacing: 0.06em;
-          color: ${tarmac.teal};
+          color: ${tarmac.tealDeep};
         }
         .grid { display: grid; gap: 1rem; }
         @media (min-width: 960px) {
           .grid { grid-template-columns: 1fr 1fr; align-items: start; }
         }
         .card {
-          padding: 1.1rem; border-radius: 10px; border: 1px solid ${tarmac.lineDim};
-          background: ${tarmac.asphaltCard}; display: grid; gap: 0.85rem;
+          padding: 1.1rem;
+          border-radius: 10px;
+          border: 1px solid ${tarmac.lineDim};
+          background: ${tarmac.surface};
+          display: grid;
+          gap: 0.85rem;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+        }
+        h3 {
+          margin: 0;
+          font-size: 0.72rem;
+          color: ${tarmac.tealDeep};
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-weight: 700;
         }
         .fields { display: grid; gap: 0.65rem; }
-        label { display: grid; gap: 0.3rem; font-size: 0.72rem; color: ${tarmac.slate}; text-transform: uppercase; letter-spacing: 0.06em; }
-        input, select {
-          padding: 0.65rem 0.85rem; min-height: 2.55rem; border-radius: 999px; border: 1px solid ${tarmac.line};
-          background: #0b1220; color: ${tarmac.text}; font-size: 0.9rem; text-transform: none; letter-spacing: normal;
-          box-sizing: border-box;
+        label {
+          display: grid;
+          gap: 0.3rem;
+          font-size: 0.72rem;
+          color: ${tarmac.slate};
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-weight: 600;
         }
-        .btn {
-          display: inline-flex; align-items: center; justify-content: center;
-          min-height: 2.55rem; padding: 0.65rem 1.05rem; border-radius: 999px;
-          font-size: 0.86rem; font-weight: 700; line-height: 1; cursor: pointer;
-          border: 1px solid transparent; box-sizing: border-box; width: fit-content;
-        }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-primary {
-          background: ${tarmac.teal}; color: #042f2e; border-color: ${tarmac.teal};
-        }
-        .btn-ghost {
-          background: rgba(15, 23, 42, 0.55); color: ${tarmac.text}; border-color: ${tarmac.line};
-        }
-        .btn-danger {
-          background: rgba(15, 23, 42, 0.55); color: ${tarmac.danger};
-          border-color: rgba(248,113,113,0.45);
-        }
-        .list { display: grid; gap: 0.55rem; margin-top: 0.35rem; }
+        .list { display: grid; gap: 0.55rem; margin-top: 0.2rem; }
         .row {
-          display: flex; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;
-          padding: 0.85rem 0.95rem; border-radius: 8px; border: 1px solid ${tarmac.lineDim};
-          background: ${tarmac.asphaltLight};
+          display: flex;
+          justify-content: space-between;
+          gap: 0.85rem;
+          flex-wrap: wrap;
+          padding: 0.85rem 0.95rem;
+          border-radius: 8px;
+          border: 1px solid ${tarmac.lineDim};
+          background: ${tarmac.surfaceMuted};
         }
-        .row strong { display: block; }
-        .row span, .empty, .err { color: #cbd5e1; font-size: 0.78rem; }
-        .err { color: ${tarmac.danger}; }
+        .row strong { display: block; color: ${tarmac.text}; }
+        .row span, .empty, .err { color: ${tarmac.slate}; font-size: 0.78rem; }
+        .err { color: ${tarmac.danger}; margin: 0 0 0.75rem; }
         .row-actions { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
         .perms { display: grid; gap: 0.45rem; }
         .perm {
-          display: flex; gap: 0.65rem; align-items: flex-start; padding: 0.55rem 0.65rem;
-          border-radius: 8px; border: 1px solid ${tarmac.lineDim}; background: ${tarmac.asphaltLight};
-          text-transform: none; letter-spacing: normal;
+          display: flex;
+          gap: 0.65rem;
+          align-items: flex-start;
+          padding: 0.55rem 0.65rem;
+          border-radius: 8px;
+          border: 1px solid ${tarmac.lineDim};
+          background: ${tarmac.surfaceMuted};
+          text-transform: none;
+          letter-spacing: normal;
         }
         .perm strong { display: block; color: ${tarmac.text}; font-size: 0.86rem; }
-        .perm em { display: block; color: #cbd5e1; font-size: 0.75rem; font-style: normal; margin-top: 0.15rem; }
+        .perm em {
+          display: block;
+          color: ${tarmac.slate};
+          font-size: 0.75rem;
+          font-style: normal;
+          margin-top: 0.15rem;
+        }
       `}</style>
     </div>
   );
