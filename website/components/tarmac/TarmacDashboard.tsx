@@ -252,31 +252,32 @@ export function TarmacDashboard() {
         <nav className="desk-nav-foot" aria-label="Account">
           <button
             type="button"
-            className={tab === "settings" ? "desk-icon-btn active" : "desk-icon-btn"}
-            aria-label="Settings"
-            title="Settings"
+            className={tab === "settings" ? "desk-foot-btn active" : "desk-foot-btn"}
             onClick={() => setTab("settings")}
           >
             <IconGear />
+            <span>Settings</span>
           </button>
-          <button
-            type="button"
-            className={tab === "profile" ? "desk-icon-btn active" : "desk-icon-btn"}
-            aria-label="Profile"
-            title="Profile"
-            onClick={() => setTab("profile")}
-          >
-            <IconProfile />
-          </button>
-          <button
-            type="button"
-            className="desk-icon-btn desk-icon-btn-exit"
-            aria-label="Sign out"
-            title="Sign out"
-            onClick={() => void handleSignOut()}
-          >
-            <IconSignOut />
-          </button>
+          <div className="desk-foot-row">
+            <button
+              type="button"
+              className={tab === "profile" ? "desk-foot-btn active" : "desk-foot-btn"}
+              onClick={() => setTab("profile")}
+            >
+              <IconProfile />
+              <span>Profile</span>
+            </button>
+            <button
+              type="button"
+              className="desk-icon-btn desk-icon-btn-exit"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={() => void handleSignOut()}
+            >
+              <IconSignOut />
+              <span className="desk-tooltip">Sign out</span>
+            </button>
+          </div>
         </nav>
       </aside>
 
