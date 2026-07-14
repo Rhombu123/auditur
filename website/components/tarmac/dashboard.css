@@ -209,11 +209,44 @@
 }
 
 .desk-nav-foot {
-  display: grid;
-  gap: 0.1rem;
-  padding-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 0.75rem;
   margin-top: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.desk-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.desk-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.desk-icon-btn.active {
+  background: rgba(45, 212, 191, 0.14);
+  color: #2dd4bf;
+}
+
+.desk-icon-btn-exit:hover {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
 }
 
 .desk-nav-btn {

@@ -45,10 +45,57 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "members", label: "Members" },
 ];
 
-const FOOT_TABS: { id: TabId; label: string }[] = [
-  { id: "profile", label: "Profile" },
-  { id: "settings", label: "Settings" },
-];
+function IconGear() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <path
+        d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+      <path
+        d="M19.4 13a7.7 7.7 0 0 0 .05-2l2.05-1.6-2-3.46-2.45.9a7.6 7.6 0 0 0-1.73-1L14.8 3h-5.6l-.52 2.24a7.6 7.6 0 0 0-1.73 1l-2.45-.9-2 3.46L4.55 11a7.7 7.7 0 0 0 0 2l-2.05 1.6 2 3.46 2.45-.9a7.6 7.6 0 0 0 1.73 1L9.2 21h5.6l.52-2.24a7.6 7.6 0 0 0 1.73-1l2.45.9 2-3.46L19.4 13Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconProfile() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <circle cx="12" cy="8" r="3.25" stroke="currentColor" strokeWidth="1.75" />
+      <path
+        d="M5.5 19.25c1.4-3.2 11.6-3.2 13 0"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconSignOut() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
+      <path
+        d="M10 5.5H7.5A2.5 2.5 0 0 0 5 8v8a2.5 2.5 0 0 0 2.5 2.5H10"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+      <path
+        d="M14 8.5 18.5 12 14 15.5M18 12H10"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const TITLES: Record<TabId, { title: string; blurb: string }> = {
   overview: {
@@ -203,17 +250,33 @@ export function TarmacDashboard() {
           ))}
         </nav>
         <nav className="desk-nav-foot" aria-label="Account">
-          {FOOT_TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tab === item.id ? "desk-nav-btn active" : "desk-nav-btn"}
-              onClick={() => setTab(item.id)}
-            >
-              <span className="desk-nav-dot" aria-hidden />
-              {item.label}
-            </button>
-          ))}
+          <button
+            type="button"
+            className={tab === "settings" ? "desk-icon-btn active" : "desk-icon-btn"}
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => setTab("settings")}
+          >
+            <IconGear />
+          </button>
+          <button
+            type="button"
+            className={tab === "profile" ? "desk-icon-btn active" : "desk-icon-btn"}
+            aria-label="Profile"
+            title="Profile"
+            onClick={() => setTab("profile")}
+          >
+            <IconProfile />
+          </button>
+          <button
+            type="button"
+            className="desk-icon-btn desk-icon-btn-exit"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => void handleSignOut()}
+          >
+            <IconSignOut />
+          </button>
         </nav>
       </aside>
 
@@ -231,9 +294,6 @@ export function TarmacDashboard() {
               <strong>{displayName(user)}</strong>
             </div>
             {syncing ? <span className="desk-sync">Syncing…</span> : null}
-            <button type="button" className="ui-btn ui-btn-secondary" onClick={() => void handleSignOut()}>
-              Sign out
-            </button>
           </div>
         </header>
 
