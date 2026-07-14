@@ -46,12 +46,8 @@
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 0.65rem;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  object-fit: cover;
+  box-shadow: 0 8px 20px rgba(4, 47, 46, 0.22);
 }
 
 .auth-hero h1 {

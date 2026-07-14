@@ -40,6 +40,7 @@ import {
 import { ManualVinModal } from "@/components/manual-vin-modal";
 import { colors, palette, spacing } from "@/constants/theme";
 import { isDevBuild } from "@/lib/dev-build";
+import { clearMobileCache, MOBILE_CACHE_KEYS } from "@/lib/mobile-cache";
 import { ocrVinFromPhoto } from "@/lib/on-device-ocr";
 
 const BARCODE_COOLDOWN_MS = 1800;
@@ -150,6 +151,10 @@ export default function ScanCameraScreen() {
           vehicle,
           inventoryMatched,
         });
+        await Promise.all([
+          clearMobileCache(MOBILE_CACHE_KEYS.audit),
+          clearMobileCache(MOBILE_CACHE_KEYS.vehicles),
+        ]);
 
         setScanResult({
           vin: formattedVin ?? existing?.vin ?? null,

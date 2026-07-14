@@ -36,6 +36,7 @@
     "expo-location": "~19.0.8",
     "expo-router": "~6.0.24",
     "expo-sharing": "~14.0.8",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-text-extractor": "^2.0.0",
     "formidable": "^3.5.4",

@@ -22,6 +22,11 @@ import { AUTH_ENABLED } from "@/lib/auth-config";
 import { getErrorMessage } from "@/lib/errors";
 import { useAuth } from "@/lib/auth-context";
 import {
+  MOBILE_CACHE_KEYS,
+  readMobileCache,
+  writeMobileCache,
+} from "@/lib/mobile-cache";
+import {
   deleteScannedVehicleByVinSuffix,
   fetchScannedVehicles,
   updateScannedVehicle,
@@ -41,12 +46,22 @@ export default function VehiclesScreen() {
   const [editing, setEditing] = useState<ScannedVehicle | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const cached = await readMobileCache<ScannedVehicle[]>(MOBILE_CACHE_KEYS.vehicles);
+    if (cached) {
+      setVehicles(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      setVehicles(await fetchScannedVehicles());
+      const fresh = await fetchScannedVehicles();
+      setVehicles(fresh);
+      await writeMobileCache(MOBILE_CACHE_KEYS.vehicles, fresh);
     } catch (loadError) {
-      setError(getErrorMessage(loadError, "Failed to load vehicles."));
+      if (!cached) {
+        setError(getErrorMessage(loadError, "Failed to load vehicles."));
+      }
     } finally {
       setLoading(false);
     }
@@ -81,9 +96,11 @@ export default function VehiclesScreen() {
 
   async function handleSave(id: string, model: string, color: string) {
     await updateScannedVehicle(id, { model, color });
-    setVehicles((current) =>
-      current.map((v) => (v.id === id ? { ...v, model, color } : v)),
-    );
+    setVehicles((current) => {
+      const next = current.map((v) => (v.id === id ? { ...v, model, color } : v));
+      void writeMobileCache(MOBILE_CACHE_KEYS.vehicles, next);
+      return next;
+    });
   }
 
   function confirmDelete(vehicle: ScannedVehicle) {
@@ -99,7 +116,11 @@ export default function VehiclesScreen() {
             void (async () => {
               try {
                 await deleteScannedVehicleByVinSuffix(vehicle.vinSuffix);
-                setVehicles((current) => current.filter((v) => v.id !== vehicle.id));
+                setVehicles((current) => {
+                  const next = current.filter((v) => v.id !== vehicle.id);
+                  void writeMobileCache(MOBILE_CACHE_KEYS.vehicles, next);
+                  return next;
+                });
               } catch (deleteError) {
                 setError(getErrorMessage(deleteError, "Delete failed."));
               }

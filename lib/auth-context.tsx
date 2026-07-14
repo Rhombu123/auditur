@@ -11,6 +11,7 @@ import {
 
 import { formatAuthError, normalizeEmail } from "@/lib/email-auth";
 import { getErrorMessage } from "@/lib/errors";
+import { AUTH_ENABLED } from "@/lib/auth-config";
 import { supabase } from "@/lib/supabase";
 
 type AuthContextValue = {
@@ -25,9 +26,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(AUTH_ENABLED);
 
   useEffect(() => {
+    if (!AUTH_ENABLED) return;
+
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);

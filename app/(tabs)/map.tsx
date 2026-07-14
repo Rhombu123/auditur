@@ -29,6 +29,11 @@ import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
 import { getErrorMessage } from "@/lib/errors";
 import { findCoLocatedVehicles, findZoneForPoint, groupVehiclesByLocation } from "@/lib/geo";
 import {
+  MOBILE_CACHE_KEYS,
+  readMobileCache,
+  writeMobileCache,
+} from "@/lib/mobile-cache";
+import {
   createLotZone,
   deleteLotZone,
   fetchLotZones,
@@ -105,7 +110,17 @@ export default function MapScreen() {
   const [locationReady, setLocationReady] = useState(false);
 
   const refreshData = useCallback(async (showSpinner = false) => {
-    if (showSpinner) setLoading(true);
+    const [cachedVehicles, cachedZones] = await Promise.all([
+      readMobileCache<ScannedVehicle[]>(MOBILE_CACHE_KEYS.vehicles),
+      readMobileCache<LotZone[]>(MOBILE_CACHE_KEYS.zones),
+    ]);
+    if (cachedVehicles) setVehicles(cachedVehicles);
+    if (cachedZones) setZones(cachedZones);
+    if (showSpinner && !cachedVehicles && !cachedZones) {
+      setLoading(true);
+    } else {
+      setLoading(false);
+    }
     setError(null);
     try {
       const [vehicleData, zoneData] = await Promise.all([
@@ -114,20 +129,22 @@ export default function MapScreen() {
       ]);
       setVehicles(vehicleData);
       setZones(zoneData);
+      await Promise.all([
+        writeMobileCache(MOBILE_CACHE_KEYS.vehicles, vehicleData),
+        writeMobileCache(MOBILE_CACHE_KEYS.zones, zoneData),
+      ]);
     } catch (loadError) {
-      setError(getErrorMessage(loadError, "Failed to load map."));
+      if (!cachedVehicles && !cachedZones) {
+        setError(getErrorMessage(loadError, "Failed to load map."));
+      }
     } finally {
       if (showSpinner) setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void refreshData(true);
-  }, [refreshData]);
-
   useFocusEffect(
     useCallback(() => {
-      void refreshData(false);
+      void refreshData(true);
     }, [refreshData]),
   );
 

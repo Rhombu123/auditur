@@ -1,4 +1,3 @@
-import * as DocumentPicker from "expo-document-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -15,6 +14,12 @@ import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorText, Screen, ScreenSubtitle } from "@/components/ui/screen";
 import { VinSearchInput } from "@/components/vin-search-input";
 import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
+import {
+  clearMobileCache,
+  MOBILE_CACHE_KEYS,
+  readMobileCache,
+  writeMobileCache,
+} from "@/lib/mobile-cache";
 import {
   deleteInventoryUpload,
   fetchInventory,
@@ -43,7 +48,18 @@ export default function UploadScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const loadInventory = useCallback(async () => {
-    setLoading(true);
+    const [cachedInventory, cachedHistory] = await Promise.all([
+      readMobileCache<{ fileName: string; items: InventoryItem[] } | null>(
+        MOBILE_CACHE_KEYS.inventory,
+      ),
+      readMobileCache<InventoryUploadLog[]>(MOBILE_CACHE_KEYS.uploadHistory),
+    ]);
+    if (cachedInventory !== null) {
+      setFileName(cachedInventory?.fileName ?? null);
+      setItems(cachedInventory?.items ?? []);
+    }
+    if (cachedHistory) setUploadLog(cachedHistory);
+    setLoading(cachedInventory === null && !cachedHistory);
     setError(null);
     try {
       const [inventory, history] = await Promise.all([
@@ -51,6 +67,10 @@ export default function UploadScreen() {
         fetchUploadHistory(),
       ]);
       setUploadLog(history);
+      await Promise.all([
+        writeMobileCache(MOBILE_CACHE_KEYS.inventory, inventory),
+        writeMobileCache(MOBILE_CACHE_KEYS.uploadHistory, history),
+      ]);
       if (inventory) {
         setFileName(inventory.fileName);
         setItems(inventory.items);
@@ -59,7 +79,9 @@ export default function UploadScreen() {
         setItems([]);
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load uploads.");
+      if (cachedInventory === null && !cachedHistory) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load uploads.");
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +104,7 @@ export default function UploadScreen() {
 
   async function pickPdf() {
     setError(null);
+    const DocumentPicker = await import("expo-document-picker");
     const result = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
       copyToCacheDirectory: true,
@@ -97,6 +120,7 @@ export default function UploadScreen() {
       setFileName(inventory.fileName);
       setItems(inventory.items);
       setSearch("");
+      await clearMobileCache(MOBILE_CACHE_KEYS.audit);
       await loadInventory();
     } catch (uploadError) {
       setError(
@@ -122,6 +146,7 @@ export default function UploadScreen() {
             void (async () => {
               try {
                 await deleteInventoryUpload(entry.id);
+                await clearMobileCache(MOBILE_CACHE_KEYS.audit);
                 await loadInventory();
               } catch (deleteError) {
                 setError(

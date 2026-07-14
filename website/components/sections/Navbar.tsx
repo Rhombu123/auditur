@@ -1,6 +1,7 @@
 import { motion, useMotionValueEvent, useScroll } from "framer-motion";
 import { useState } from "react";
 
+import { BrandLogo } from "@/components/BrandLogo";
 import { palette } from "@/lib/theme";
 
 const links = [
@@ -30,7 +31,7 @@ export function Navbar() {
       }}
     >
       <a href="#" className="brand">
-        <span className="brand-mark">A</span>
+        <BrandLogo size={32} className="brand-mark" priority />
         <span>Auditur</span>
       </a>
 
@@ -85,11 +86,6 @@ export function Navbar() {
           width: 2rem;
           height: 2rem;
           border-radius: 0.65rem;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(145deg, ${palette.teal600}, ${palette.teal800});
-          color: white;
-          font-weight: 800;
           box-shadow: 0 8px 20px rgba(13, 148, 136, 0.28);
         }
 

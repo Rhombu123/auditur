@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BrandLogo } from "@/components/BrandLogo";
+
 import "./auth.css";
 
 type Props = {
@@ -30,7 +32,7 @@ export function AuthShell({ title, subtitle, children, footer }: Props) {
       >
         <div className="auth-hero-inner">
           <Link href="/" className="auth-logo">
-            <span className="auth-logo-mark">A</span>
+            <BrandLogo size={36} className="auth-logo-mark" priority />
             Auditur
           </Link>
           <h1>Your lot, in real time.</h1>

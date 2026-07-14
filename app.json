@@ -46,6 +46,15 @@
           "locationWhenInUsePermission": "Allow Auditur to capture GPS when you scan a vehicle."
         }
       ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#F8FAFC"
+        }
+      ],
       "expo-asset",
       "expo-font"
     ],

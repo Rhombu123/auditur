@@ -16,6 +16,11 @@ import { EmptyState, ErrorText, Screen, ScreenSubtitle } from "@/components/ui/s
 import { StatCard, StatRow } from "@/components/ui/stat-card";
 import { colors, spacing, typography } from "@/constants/theme";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  MOBILE_CACHE_KEYS,
+  readMobileCache,
+  writeMobileCache,
+} from "@/lib/mobile-cache";
 import { fetchTodayAudit } from "@/lib/mobile-api";
 import type { AuditVehicleRef, TodayAuditSummary } from "@/lib/types";
 import { formatVinPrimary } from "@/lib/vin-display";
@@ -53,12 +58,22 @@ export default function AuditScreen() {
   const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const cached = await readMobileCache<TodayAuditSummary>(MOBILE_CACHE_KEYS.audit);
+    if (cached) {
+      setAudit(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      setAudit(await fetchTodayAudit());
+      const fresh = await fetchTodayAudit();
+      setAudit(fresh);
+      await writeMobileCache(MOBILE_CACHE_KEYS.audit, fresh);
     } catch (loadError) {
-      setError(getErrorMessage(loadError, "Failed to load today's audit."));
+      if (!cached) {
+        setError(getErrorMessage(loadError, "Failed to load today's audit."));
+      }
     } finally {
       setLoading(false);
     }

@@ -1,17 +1,35 @@
 import "react-native-reanimated";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import * as SplashScreen from "expo-splash-screen";
+import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 
+import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { colors } from "@/constants/theme";
 import { AUTH_ENABLED } from "@/lib/auth-config";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+
+void SplashScreen.preventAutoHideAsync();
 
 function AuthGate() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [showAnimatedLoader, setShowAnimatedLoader] = useState(false);
+
+  useEffect(() => {
+    if (!AUTH_ENABLED || !loading) {
+      setShowAnimatedLoader(false);
+      void SplashScreen.hideAsync();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowAnimatedLoader(true);
+      void SplashScreen.hideAsync();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   useEffect(() => {
     if (!AUTH_ENABLED) return;
@@ -30,11 +48,7 @@ function AuthGate() {
   }, [loading, router, segments, session]);
 
   if (AUTH_ENABLED && loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.primary} size="large" />
-      </View>
-    );
+    return showAnimatedLoader ? <AppLoadingScreen /> : null;
   }
 
   return <Stack screenOptions={{ headerShown: false }} />;
@@ -48,12 +62,3 @@ export default function RootLayout() {
     </AuthProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
-  },
-});

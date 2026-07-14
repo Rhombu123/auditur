@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 
+import { BrandLogo } from "@/components/BrandLogo";
 import { palette } from "@/lib/theme";
 
 export function Footer() {
@@ -15,7 +16,7 @@ export function Footer() {
     >
       <div className="footer-inner">
         <div className="brand">
-          <span className="brand-mark">A</span>
+          <BrandLogo size={36} className="brand-mark" />
           <div>
             <strong>Auditur</strong>
             <p>Dealership lot auditing, simplified.</p>
@@ -64,11 +65,6 @@ export function Footer() {
           width: 2.25rem;
           height: 2.25rem;
           border-radius: 0.7rem;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(145deg, ${palette.teal600}, ${palette.teal800});
-          color: white;
-          font-weight: 800;
         }
 
         .brand strong {

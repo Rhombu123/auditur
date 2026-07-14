@@ -397,13 +397,8 @@
   width: 1.55rem;
   height: 1.55rem;
   border-radius: 6px;
-  background: linear-gradient(145deg, #14b8a6, #0d9488);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  font-size: 0.72rem;
-  letter-spacing: -0.04em;
+  object-fit: cover;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.16);
 }
 
 .desk-brand-copy {
@@ -724,6 +719,49 @@
   color: var(--desk-muted);
   font-size: 0.9rem;
   padding: 1.5rem 0;
+}
+
+.desk-panel-loading {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid var(--desk-line-dim);
+  border-radius: var(--desk-radius);
+  background: var(--desk-surface);
+  color: var(--desk-muted);
+  font-size: 0.8rem;
+}
+
+.desk-panel-loading span {
+  display: block;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--desk-line-dim) 20%,
+    #f8fafc 50%,
+    var(--desk-line-dim) 80%
+  );
+  background-size: 200% 100%;
+  animation: desk-skeleton 1.2s ease-in-out infinite;
+}
+
+.desk-panel-loading span:nth-child(1) {
+  width: 38%;
+}
+
+.desk-panel-loading span:nth-child(2) {
+  width: 72%;
+}
+
+.desk-panel-loading span:nth-child(3) {
+  width: 54%;
+}
+
+@keyframes desk-skeleton {
+  to {
+    background-position: -200% 0;
+  }
 }
 
 .desk-kpis {

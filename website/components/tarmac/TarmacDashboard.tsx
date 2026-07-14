@@ -1,18 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuditDial } from "@/components/tarmac/AuditDial";
-import { AuditPanel } from "@/components/tarmac/AuditPanel";
-import { MapPanel } from "@/components/tarmac/MapPanel";
-import { MembersPanel } from "@/components/tarmac/MembersPanel";
-import { ProfilePanel } from "@/components/tarmac/ProfilePanel";
+import { BrandLogo } from "@/components/BrandLogo";
 import { ScanFeed } from "@/components/tarmac/ScanFeed";
-import { SettingsPanel } from "@/components/tarmac/SettingsPanel";
-import { UploadPanel } from "@/components/tarmac/UploadPanel";
 import { UploadStrip } from "@/components/tarmac/UploadStrip";
-import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
 import "@/components/tarmac/dashboard.css";
 import { displayName, useAuth } from "@/lib/auth-context";
@@ -25,6 +20,46 @@ import type { DashboardData } from "@/lib/types";
 import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
 import { fetchDashboardData } from "@/lib/web-api";
 import { supabaseConfigured } from "@/lib/supabase-browser";
+
+function PanelLoading() {
+  return (
+    <div className="desk-panel-loading" role="status">
+      <span />
+      <span />
+      <span />
+      Loading section…
+    </div>
+  );
+}
+
+const AuditPanel = dynamic(
+  () => import("@/components/tarmac/AuditPanel").then((module) => module.AuditPanel),
+  { loading: () => <PanelLoading /> },
+);
+const UploadPanel = dynamic(
+  () => import("@/components/tarmac/UploadPanel").then((module) => module.UploadPanel),
+  { loading: () => <PanelLoading /> },
+);
+const VehiclesPanel = dynamic(
+  () => import("@/components/tarmac/VehiclesPanel").then((module) => module.VehiclesPanel),
+  { loading: () => <PanelLoading /> },
+);
+const MapPanel = dynamic(
+  () => import("@/components/tarmac/MapPanel").then((module) => module.MapPanel),
+  { loading: () => <PanelLoading /> },
+);
+const MembersPanel = dynamic(
+  () => import("@/components/tarmac/MembersPanel").then((module) => module.MembersPanel),
+  { loading: () => <PanelLoading /> },
+);
+const ProfilePanel = dynamic(
+  () => import("@/components/tarmac/ProfilePanel").then((module) => module.ProfilePanel),
+  { loading: () => <PanelLoading /> },
+);
+const SettingsPanel = dynamic(
+  () => import("@/components/tarmac/SettingsPanel").then((module) => module.SettingsPanel),
+  { loading: () => <PanelLoading /> },
+);
 
 type TabId =
   | "overview"
@@ -230,7 +265,7 @@ export function TarmacDashboard() {
     <div className="desk">
       <aside className="desk-sidebar">
         <div className="desk-brand">
-          <span className="desk-brand-mark">A</span>
+          <BrandLogo size={25} className="desk-brand-mark" priority />
           <div className="desk-brand-copy">
             <strong>Auditur</strong>
             <span>Lot desk</span>
