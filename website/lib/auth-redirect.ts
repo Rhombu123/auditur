@@ -1,3 +1,11 @@
+import {
+  type AccountType,
+  type PendingSignupProfile,
+  consumePendingSignupProfile,
+  registerAccount,
+  storePendingSignupProfile,
+} from "@/lib/account-ids";
+
 const PENDING_NAME_KEY = "auditur_pending_full_name";
 const RETURN_TO_KEY = "auditur_auth_return_to";
 const DEFAULT_RETURN_TO = "/dashboard/";
@@ -57,6 +65,17 @@ export function storePendingFullName(fullName: string): void {
   localStorage.setItem(PENDING_NAME_KEY, trimmed);
 }
 
+export function storePendingSignup(input: {
+  fullName: string;
+  accountType: AccountType;
+}): void {
+  storePendingFullName(input.fullName);
+  storePendingSignupProfile({
+    fullName: input.fullName.trim(),
+    accountType: input.accountType,
+  });
+}
+
 export async function applyPendingFullName(
   updateUser: (fullName: string) => Promise<void>,
 ): Promise<void> {
@@ -64,4 +83,34 @@ export async function applyPendingFullName(
   if (!pending?.trim()) return;
   localStorage.removeItem(PENDING_NAME_KEY);
   await updateUser(pending.trim());
+}
+
+/** Applies pending signup profile, allocates a unique 9-digit Auditur ID, and writes user metadata. */
+export async function applyPendingSignup(input: {
+  email: string;
+  updateUser: (data: {
+    full_name: string;
+    account_type: AccountType;
+    auditur_id: string;
+  }) => Promise<void>;
+}): Promise<void> {
+  const profile: PendingSignupProfile | null = consumePendingSignupProfile();
+  const legacyName = localStorage.getItem(PENDING_NAME_KEY)?.trim() ?? "";
+  localStorage.removeItem(PENDING_NAME_KEY);
+
+  const fullName = profile?.fullName?.trim() || legacyName;
+  const accountType = profile?.accountType ?? "employee";
+  if (!fullName) return;
+
+  const record = registerAccount({
+    fullName,
+    email: input.email,
+    accountType,
+  });
+
+  await input.updateUser({
+    full_name: record.fullName,
+    account_type: record.accountType,
+    auditur_id: record.auditurId,
+  });
 }

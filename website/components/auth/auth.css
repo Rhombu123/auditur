@@ -317,6 +317,64 @@
   font-weight: 700;
 }
 
+.auth-role-fieldset {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: none;
+}
+
+.auth-role-fieldset legend {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.auth-role-options {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.auth-role-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.auth-role-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.auth-role-card.selected {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.1);
+}
+
+.auth-role-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.auth-role-copy {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #64748b;
+}
+
 .auth-otp-row {
   display: flex;
   gap: 0.5rem;

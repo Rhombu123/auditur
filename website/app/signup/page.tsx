@@ -37,8 +37,12 @@ function SignupContent() {
     >
       <EmailAuthForm
         mode="signup"
-        onSendLink={async (email, fullName) => {
-          const result = await sendSignInLink(email, "signup", { fullName, returnTo });
+        onSendLink={async (email, signup) => {
+          const result = await sendSignInLink(email, "signup", {
+            fullName: signup?.fullName,
+            accountType: signup?.accountType,
+            returnTo,
+          });
           if (result === "admin") {
             router.replace(returnTo);
           }

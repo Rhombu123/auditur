@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import {
+  type AccountRecord,
+  loadSelfProfile,
+  registerAccount,
+} from "@/lib/account-ids";
+import { useAuth } from "@/lib/auth-context";
 import {
   MEMBER_PERMISSIONS,
   type PermissionId,
-  type TeamMember,
   type TeamRole,
-  addMember,
+  addMemberByAuditurId,
   assignMemberRole,
   createRole,
   deleteRole,
@@ -18,13 +23,39 @@ import {
 } from "@/lib/members-store";
 import { tarmac } from "@/lib/tarmac-theme";
 
+function resolveSelfProfile(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+} | null): AccountRecord | null {
+  const existing = loadSelfProfile();
+  if (existing) return existing;
+  if (!user?.email) return null;
+  const meta = user.user_metadata ?? {};
+  const auditurId = typeof meta.auditur_id === "string" ? meta.auditur_id : undefined;
+  const accountType =
+    meta.account_type === "owner_gm" || meta.account_type === "employee"
+      ? meta.account_type
+      : "owner_gm";
+  const fullName =
+    typeof meta.full_name === "string" && meta.full_name.trim()
+      ? meta.full_name
+      : user.email.split("@")[0] || "Member";
+  return registerAccount({
+    fullName,
+    email: user.email,
+    accountType,
+    auditurId,
+  });
+}
+
 export function MembersPanel() {
-  const [members, setMembers] = useState<TeamMember[]>(() => listMembers());
-  const [roles, setRoles] = useState<TeamRole[]>(() => listRoles());
+  const { user, isAdminBypass } = useAuth();
+  const [self, setSelf] = useState<AccountRecord | null>(null);
+  const [members, setMembers] = useState(() => listMembers());
+  const [roles, setRoles] = useState(() => listRoles());
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [memberRoleId, setMemberRoleId] = useState<string>("");
+  const [auditurId, setAuditurId] = useState("");
+  const [memberRoleId, setMemberRoleId] = useState("");
   const [roleName, setRoleName] = useState("");
   const [rolePermissions, setRolePermissions] = useState<PermissionId[]>([
     "view_dashboard",
@@ -32,12 +63,19 @@ export function MembersPanel() {
   ]);
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
 
+  useEffect(() => {
+    setSelf(resolveSelfProfile(user));
+  }, [user, isAdminBypass]);
+
   function reload() {
     setMembers(listMembers());
     setRoles(listRoles());
+    setSelf(loadSelfProfile());
   }
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+  const canManageMembers =
+    isAdminBypass || !self || self.accountType === "owner_gm";
 
   function togglePermission(id: PermissionId) {
     setRolePermissions((prev) =>
@@ -48,13 +86,11 @@ export function MembersPanel() {
   function handleAddMember() {
     setError(null);
     try {
-      addMember({
-        fullName: name,
-        email,
+      addMemberByAuditurId({
+        auditurId,
         roleId: memberRoleId || null,
       });
-      setName("");
-      setEmail("");
+      setAuditurId("");
       setMemberRoleId("");
       reload();
     } catch (addError) {
@@ -91,9 +127,19 @@ export function MembersPanel() {
         <div>
           <h2>Members & roles</h2>
           <p>
-            Add employees to this account, then create custom roles with permissions and assign
-            people to them.
+            Owners and GMs add employees by their 9-digit Auditur ID — no name or email needed once
+            they’ve signed up.
           </p>
+          {self ? (
+            <p className="id-line">
+              Your Auditur ID: <strong>{self.auditurId}</strong>
+              <span>
+                {self.accountType === "owner_gm"
+                  ? " · Owner / GM"
+                  : " · Employee — share this ID with your owner or GM"}
+              </span>
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -101,35 +147,46 @@ export function MembersPanel() {
 
       <div className="grid">
         <section className="card">
-          <h3>Add member</h3>
-          <div className="fields">
-            <label>
-              Full name
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jordan Lee" />
-            </label>
-            <label>
-              Work email
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="jordan@dealership.com"
-              />
-            </label>
-            <label>
-              Role (optional)
-              <select value={memberRoleId} onChange={(e) => setMemberRoleId(e.target.value)}>
-                <option value="">No role yet</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <button type="button" className="primary" onClick={handleAddMember}>
-            Add employee
-          </button>
+          <h3>Add member by ID</h3>
+          {canManageMembers ? (
+            <>
+              <div className="fields">
+                <label>
+                  Employee Auditur ID
+                  <input
+                    value={auditurId}
+                    onChange={(e) => setAuditurId(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                    placeholder="9-digit ID"
+                    inputMode="numeric"
+                    maxLength={9}
+                  />
+                </label>
+                <label>
+                  Role (optional)
+                  <select value={memberRoleId} onChange={(e) => setMemberRoleId(e.target.value)}>
+                    <option value="">No role yet</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={auditurId.length !== 9}
+                onClick={handleAddMember}
+              >
+                Add employee
+              </button>
+            </>
+          ) : (
+            <p className="empty">
+              Only owners and GMs can add members. Share your Auditur ID above so they can add you.
+            </p>
+          )}
 
           <div className="list">
             {members.length === 0 ? (
@@ -140,38 +197,40 @@ export function MembersPanel() {
                   <div>
                     <strong>{member.fullName}</strong>
                     <span>
-                      {member.email}
+                      ID {member.auditurId ?? "—"}
                       {member.roleId
                         ? ` · ${roleById.get(member.roleId)?.name ?? "Unknown role"}`
                         : " · No role"}
                     </span>
                   </div>
-                  <div className="row-actions">
-                    <select
-                      value={member.roleId ?? ""}
-                      onChange={(e) => {
-                        assignMemberRole(member.id, e.target.value || null);
-                        reload();
-                      }}
-                    >
-                      <option value="">No role</option>
-                      {roles.map((role) => (
-                        <option key={role.id} value={role.id}>
-                          {role.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => {
-                        removeMember(member.id);
-                        reload();
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  {canManageMembers ? (
+                    <div className="row-actions">
+                      <select
+                        value={member.roleId ?? ""}
+                        onChange={(e) => {
+                          assignMemberRole(member.id, e.target.value || null);
+                          reload();
+                        }}
+                      >
+                        <option value="">No role</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={() => {
+                          removeMember(member.id);
+                          reload();
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}
@@ -180,47 +239,53 @@ export function MembersPanel() {
 
         <section className="card">
           <h3>{editingRoleId ? "Edit role" : "Create role"}</h3>
-          <label>
-            Role name
-            <input
-              value={roleName}
-              onChange={(e) => setRoleName(e.target.value)}
-              placeholder="Lot runner"
-            />
-          </label>
-          <div className="perms">
-            {MEMBER_PERMISSIONS.map((permission) => (
-              <label key={permission.id} className="perm">
+          {canManageMembers ? (
+            <>
+              <label>
+                Role name
                 <input
-                  type="checkbox"
-                  checked={rolePermissions.includes(permission.id)}
-                  onChange={() => togglePermission(permission.id)}
+                  value={roleName}
+                  onChange={(e) => setRoleName(e.target.value)}
+                  placeholder="Lot runner"
                 />
-                <span>
-                  <strong>{permission.label}</strong>
-                  <em>{permission.description}</em>
-                </span>
               </label>
-            ))}
-          </div>
-          <div className="row-actions">
-            <button type="button" className="primary" onClick={handleSaveRole}>
-              {editingRoleId ? "Save role" : "Create role"}
-            </button>
-            {editingRoleId ? (
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  setEditingRoleId(null);
-                  setRoleName("");
-                  setRolePermissions(["view_dashboard", "view_audit"]);
-                }}
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
+              <div className="perms">
+                {MEMBER_PERMISSIONS.map((permission) => (
+                  <label key={permission.id} className="perm">
+                    <input
+                      type="checkbox"
+                      checked={rolePermissions.includes(permission.id)}
+                      onChange={() => togglePermission(permission.id)}
+                    />
+                    <span>
+                      <strong>{permission.label}</strong>
+                      <em>{permission.description}</em>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="row-actions">
+                <button type="button" className="btn btn-primary" onClick={handleSaveRole}>
+                  {editingRoleId ? "Save role" : "Create role"}
+                </button>
+                {editingRoleId ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setEditingRoleId(null);
+                      setRoleName("");
+                      setRolePermissions(["view_dashboard", "view_audit"]);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="empty">Role management is limited to owners and GMs.</p>
+          )}
 
           <div className="list">
             {roles.map((role) => {
@@ -237,22 +302,28 @@ export function MembersPanel() {
                         : assignees.map((m) => m.fullName).join(", ")}
                     </span>
                   </div>
-                  <div className="row-actions">
-                    <button type="button" className="ghost" onClick={() => startEditRole(role)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => {
-                        deleteRole(role.id);
-                        if (editingRoleId === role.id) setEditingRoleId(null);
-                        reload();
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  {canManageMembers ? (
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => startEditRole(role)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={() => {
+                          deleteRole(role.id);
+                          if (editingRoleId === role.id) setEditingRoleId(null);
+                          reload();
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -269,6 +340,12 @@ export function MembersPanel() {
         h2 { margin: 0; font-size: 1.05rem; }
         h3 { margin: 0 0 0.85rem; font-size: 0.92rem; color: ${tarmac.teal}; text-transform: uppercase; letter-spacing: 0.08em; }
         .hero p { margin: 0.4rem 0 0; color: ${tarmac.slate}; font-size: 0.86rem; max-width: 40rem; line-height: 1.45; }
+        .id-line { color: ${tarmac.text} !important; }
+        .id-line strong {
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          letter-spacing: 0.06em;
+          color: ${tarmac.teal};
+        }
         .grid { display: grid; gap: 1rem; }
         @media (min-width: 960px) {
           .grid { grid-template-columns: 1fr 1fr; align-items: start; }
@@ -280,18 +357,27 @@ export function MembersPanel() {
         .fields { display: grid; gap: 0.65rem; }
         label { display: grid; gap: 0.3rem; font-size: 0.72rem; color: ${tarmac.slate}; text-transform: uppercase; letter-spacing: 0.06em; }
         input, select {
-          padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid ${tarmac.line};
+          padding: 0.65rem 0.85rem; min-height: 2.55rem; border-radius: 999px; border: 1px solid ${tarmac.line};
           background: #0b1220; color: ${tarmac.text}; font-size: 0.9rem; text-transform: none; letter-spacing: normal;
+          box-sizing: border-box;
         }
-        .primary {
-          border: none; border-radius: 999px; padding: 0.7rem 1rem; width: fit-content;
-          background: ${tarmac.teal}; color: #042f2e; font-weight: 800; cursor: pointer;
+        .btn {
+          display: inline-flex; align-items: center; justify-content: center;
+          min-height: 2.55rem; padding: 0.65rem 1.05rem; border-radius: 999px;
+          font-size: 0.86rem; font-weight: 700; line-height: 1; cursor: pointer;
+          border: 1px solid transparent; box-sizing: border-box; width: fit-content;
         }
-        .ghost, .danger {
-          border: 1px solid ${tarmac.line}; background: transparent; color: ${tarmac.text};
-          border-radius: 999px; padding: 0.5rem 0.8rem; font-weight: 700; cursor: pointer;
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+          background: ${tarmac.teal}; color: #042f2e; border-color: ${tarmac.teal};
         }
-        .danger { color: ${tarmac.danger}; border-color: rgba(248,113,113,0.45); }
+        .btn-ghost {
+          background: rgba(15, 23, 42, 0.55); color: ${tarmac.text}; border-color: ${tarmac.line};
+        }
+        .btn-danger {
+          background: rgba(15, 23, 42, 0.55); color: ${tarmac.danger};
+          border-color: rgba(248,113,113,0.45);
+        }
         .list { display: grid; gap: 0.55rem; margin-top: 0.35rem; }
         .row {
           display: flex; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;

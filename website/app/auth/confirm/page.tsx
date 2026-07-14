@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
 import "@/components/auth/auth.css";
 import {
-  applyPendingFullName,
+  applyPendingSignup,
   consumeReturnTo,
   sanitizeReturnTo,
 } from "@/lib/auth-redirect";
@@ -48,8 +48,13 @@ export default function AuthConfirmPage() {
           }
         }
 
-        await applyPendingFullName(async (fullName) => {
-          await supabase.auth.updateUser({ data: { full_name: fullName } });
+        const { data: userData } = await supabase.auth.getUser();
+        const email = userData.user?.email ?? "";
+        await applyPendingSignup({
+          email,
+          updateUser: async (data) => {
+            await supabase.auth.updateUser({ data });
+          },
         });
 
         markWebSessionStarted();

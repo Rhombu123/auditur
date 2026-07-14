@@ -3,13 +3,20 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 
+import type { AccountType } from "@/lib/account-ids";
+
 import "./auth.css";
 
 type Step = "form" | "sent";
 
+export type SignupPayload = {
+  fullName: string;
+  accountType: AccountType;
+};
+
 type Props = {
   mode: "login" | "signup";
-  onSendLink: (email: string, fullName?: string) => Promise<void>;
+  onSendLink: (email: string, signup?: SignupPayload) => Promise<void>;
 };
 
 function MailIcon() {
@@ -35,6 +42,7 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
   const [step, setStep] = useState<Step>("form");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,10 +50,13 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
     setError(null);
     setLoading(true);
     try {
-      if (mode === "signup" && !fullName.trim()) {
-        throw new Error("Enter your name.");
+      if (mode === "signup") {
+        if (!fullName.trim()) throw new Error("Enter your name.");
+        if (!accountType) throw new Error("Choose whether you are an owner/GM or an employee.");
+        await onSendLink(email, { fullName, accountType });
+      } else {
+        await onSendLink(email);
       }
-      await onSendLink(email, mode === "signup" ? fullName : undefined);
       setStep("sent");
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send email.");
@@ -53,6 +64,10 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
       setLoading(false);
     }
   }
+
+  const canSubmit =
+    email.includes("@") &&
+    (mode === "login" || (Boolean(fullName.trim()) && accountType !== null));
 
   return (
     <div>
@@ -66,20 +81,62 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
             transition={{ duration: 0.25 }}
           >
             {mode === "signup" ? (
-              <div className="auth-field">
-                <label htmlFor="name">Full name</label>
-                <div className="auth-input-wrap">
-                  <UserIcon />
-                  <input
-                    id="name"
-                    className="auth-input"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Jordan Lee"
-                    autoComplete="name"
-                  />
+              <>
+                <div className="auth-field">
+                  <label htmlFor="name">Full name</label>
+                  <div className="auth-input-wrap">
+                    <UserIcon />
+                    <input
+                      id="name"
+                      className="auth-input"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Jordan Lee"
+                      autoComplete="name"
+                    />
+                  </div>
                 </div>
-              </div>
+
+                <fieldset className="auth-role-fieldset">
+                  <legend>How will you use Auditur?</legend>
+                  <div className="auth-role-options">
+                    <label
+                      className={
+                        accountType === "owner_gm" ? "auth-role-card selected" : "auth-role-card"
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="accountType"
+                        value="owner_gm"
+                        checked={accountType === "owner_gm"}
+                        onChange={() => setAccountType("owner_gm")}
+                      />
+                      <span className="auth-role-title">Dealership owner / GM</span>
+                      <span className="auth-role-copy">
+                        Manage the lot, invite employees by their Auditur ID, and own the dashboard.
+                      </span>
+                    </label>
+                    <label
+                      className={
+                        accountType === "employee" ? "auth-role-card selected" : "auth-role-card"
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="accountType"
+                        value="employee"
+                        checked={accountType === "employee"}
+                        onChange={() => setAccountType("employee")}
+                      />
+                      <span className="auth-role-title">Dealership employee</span>
+                      <span className="auth-role-copy">
+                        Get a unique 9-digit Auditur ID your owner or GM can add to their member list.
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+              </>
             ) : null}
 
             <div className="auth-field">
@@ -101,7 +158,7 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
             <button
               type="button"
               className="auth-btn"
-              disabled={loading || !email.includes("@")}
+              disabled={loading || !canSubmit}
               onClick={() => void handleSend()}
             >
               {loading ? "Sending…" : "Continue with email"}

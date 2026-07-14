@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DrawTool, LotMapApi } from "@/components/tarmac/LotMapClient";
 import { brushStrokeToPolygon } from "@/lib/brush-polygon";
+import { hexToRgba } from "@/lib/color";
 import {
   type LockedLotView,
   loadLockedLotView,
@@ -13,7 +14,6 @@ import {
 import type { LotZone } from "@/lib/types";
 import { tarmac } from "@/lib/tarmac-theme";
 import {
-  ZONE_COLOR_OPTIONS,
   createLotZone,
   deleteLotZone,
   fetchScannedVehicles,
@@ -39,6 +39,8 @@ type Props = {
 
 type Point = { latitude: number; longitude: number };
 
+const DEFAULT_BRUSH = "#0D9488";
+
 export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) {
   const [zones, setZones] = useState<LotZone[]>([]);
   const [vehicles, setVehicles] = useState<ScannedVehicleRow[]>([]);
@@ -46,7 +48,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
   const [drawTool, setDrawTool] = useState<DrawTool>("paint");
   const [draft, setDraft] = useState<Point[]>([]);
   const [zoneName, setZoneName] = useState("");
-  const [colorIndex, setColorIndex] = useState(0);
+  const [brushHex, setBrushHex] = useState(DEFAULT_BRUSH);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vinQuery, setVinQuery] = useState("");
@@ -111,7 +113,8 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
       await createLotZone({
         name: zoneName.trim() || "Untitled zone",
         coordinates: polygon,
-        colorIndex,
+        strokeColor: brushHex,
+        fillColor: hexToRgba(brushHex, 0.35),
       });
       setDraft([]);
       setDrawing(false);
@@ -139,14 +142,13 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     }
   }
 
-  async function handleColor(zone: LotZone, index: number) {
-    const colors = ZONE_COLOR_OPTIONS[index % ZONE_COLOR_OPTIONS.length];
+  async function handleZoneColor(zone: LotZone, hex: string) {
     setBusy(true);
     setError(null);
     try {
       await updateLotZoneColors(zone.id, {
-        fillColor: colors.fill,
-        strokeColor: colors.stroke,
+        fillColor: hexToRgba(hex, 0.35),
+        strokeColor: hex,
       });
       await afterMutation();
     } catch (colorError) {
@@ -165,6 +167,42 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     setError(null);
   }
 
+  const paintActions = !drawing ? (
+    <button
+      type="button"
+      className="btn btn-primary"
+      onClick={() => {
+        setDrawing(true);
+        setDrawTool("paint");
+      }}
+    >
+      Paint section
+    </button>
+  ) : (
+    <>
+      <button
+        type="button"
+        disabled={busy || draft.length < 2}
+        className="btn btn-primary"
+        onClick={() => void handleSaveZone()}
+      >
+        Save
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost"
+        disabled={busy}
+        onClick={() => {
+          setDraft([]);
+          setDrawing(false);
+          setDrawTool("paint");
+        }}
+      >
+        Cancel
+      </button>
+    </>
+  );
+
   return (
     <div className="panel">
       {!locked ? (
@@ -172,88 +210,16 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           <div>
             <h2>Lot map</h2>
             <p>
-              Highlight sections at 25% opacity, erase mistakes, then save. Search by VIN to jump to a
+              Highlight sections at 50% opacity, erase mistakes, then save. Search by VIN to jump to a
               pin. Lock the camera when the lot is framed.
             </p>
           </div>
-          <div className="hero-actions">
-            {!drawing ? (
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  setDrawing(true);
-                  setDrawTool("paint");
-                }}
-              >
-                Paint section
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={busy || draft.length < 2}
-                  className="primary"
-                  onClick={() => void handleSaveZone()}
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    setDraft([]);
-                    setDrawing(false);
-                    setDrawTool("paint");
-                  }}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-          </div>
+          <div className="btn-row">{paintActions}</div>
         </div>
       ) : (
         <div className="paint-bar">
           <span className="hint">Camera locked — paint sections on this view.</span>
-          <div className="hero-actions">
-            {!drawing ? (
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  setDrawing(true);
-                  setDrawTool("paint");
-                }}
-              >
-                Paint section
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={busy || draft.length < 2}
-                  className="primary"
-                  onClick={() => void handleSaveZone()}
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    setDraft([]);
-                    setDrawing(false);
-                    setDrawTool("paint");
-                  }}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-          </div>
+          <div className="btn-row">{paintActions}</div>
         </div>
       )}
 
@@ -266,7 +232,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
             if (e.key === "Enter") handleSearchVin();
           }}
         />
-        <button type="button" className="primary" onClick={handleSearchVin}>
+        <button type="button" className="btn btn-primary" onClick={handleSearchVin}>
           Find
         </button>
       </div>
@@ -277,14 +243,14 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
             <span className="hint">
               Frame your lot, then lock. Pan and zoom stay free until then.
             </span>
-            <button type="button" className="primary" onClick={handleLockArea}>
+            <button type="button" className="btn btn-primary" onClick={handleLockArea}>
               Lock this area
             </button>
           </>
         ) : (
           <>
             <span className="hint">Lot camera locked — pan, zoom, and rotate are off.</span>
-            <button type="button" className="ghost" onClick={handleChangePlacement}>
+            <button type="button" className="btn btn-ghost" onClick={handleChangePlacement}>
               Change placement
             </button>
           </>
@@ -298,33 +264,30 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
             onChange={(e) => setZoneName(e.target.value)}
             placeholder="Section name (Front Row, Online…)"
           />
-          <div className="swatches">
-            {ZONE_COLOR_OPTIONS.map((color, index) => (
-              <button
-                key={color.id}
-                type="button"
-                title={color.label}
-                className={colorIndex === index ? "swatch active" : "swatch"}
-                style={{ background: color.stroke }}
-                onClick={() => setColorIndex(index)}
-              />
-            ))}
-          </div>
+          <label className="color-field" title="Section color">
+            <span>Color</span>
+            <input
+              type="color"
+              value={brushHex}
+              onChange={(e) => setBrushHex(e.target.value)}
+              aria-label="Section color"
+            />
+          </label>
           <button
             type="button"
-            className={drawTool === "paint" ? "tool active" : "tool"}
+            className={drawTool === "paint" ? "btn btn-tool active" : "btn btn-tool"}
             onClick={() => setDrawTool("paint")}
           >
             Highlighter
           </button>
           <button
             type="button"
-            className={drawTool === "erase" ? "tool active" : "tool"}
+            className={drawTool === "erase" ? "btn btn-tool active" : "btn btn-tool"}
             onClick={() => setDrawTool("erase")}
           >
             Eraser
           </button>
-          <button type="button" className="ghost" onClick={() => setDraft([])}>
+          <button type="button" className="btn btn-ghost" onClick={() => setDraft([])}>
             Clear stroke
           </button>
         </div>
@@ -340,7 +303,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           draft={draft}
           drawing={drawing}
           drawTool={drawTool}
-          brushColor={ZONE_COLOR_OPTIONS[colorIndex % ZONE_COLOR_OPTIONS.length].stroke}
+          brushColor={brushHex}
           focusZoneId={focusZoneId}
           lockedView={lockedView}
           relocating={relocating}
@@ -372,22 +335,18 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
                 </span>
               </button>
               <div className="zone-actions">
-                <div className="swatches compact">
-                  {ZONE_COLOR_OPTIONS.map((color, index) => (
-                    <button
-                      key={color.id}
-                      type="button"
-                      title={color.label}
-                      className="swatch"
-                      style={{ background: color.stroke }}
-                      disabled={busy}
-                      onClick={() => void handleColor(zone, index)}
-                    />
-                  ))}
-                </div>
+                <label className="color-field compact" title="Change color">
+                  <input
+                    type="color"
+                    value={/^#[0-9A-Fa-f]{6}$/.test(zone.strokeColor) ? zone.strokeColor : DEFAULT_BRUSH}
+                    disabled={busy}
+                    onChange={(e) => void handleZoneColor(zone, e.target.value)}
+                    aria-label={`Color for ${zone.name}`}
+                  />
+                </label>
                 <button
                   type="button"
-                  className="danger"
+                  className="btn btn-danger"
                   disabled={busy}
                   onClick={() => void handleDeleteZone(zone.id, zone.name)}
                 >
@@ -408,42 +367,83 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
         }
         h2 { margin:0; font-size:1.05rem; }
         .hero p { margin:0.4rem 0 0; color:${tarmac.slate}; font-size:0.86rem; max-width:40rem; line-height:1.45; }
-        .hero-actions, .zone-actions { display:flex; gap:0.55rem; align-items:center; flex-wrap:wrap; }
-        .primary {
-          border:none; border-radius:999px; padding:0.7rem 1rem;
-          background:${tarmac.teal}; color:#042f2e; font-weight:800; cursor:pointer;
+        .btn-row, .zone-actions { display:flex; gap:0.55rem; align-items:center; flex-wrap:wrap; }
+        .btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 2.55rem;
+          padding: 0.65rem 1.05rem;
+          border-radius: 999px;
+          font-size: 0.86rem;
+          font-weight: 700;
+          line-height: 1;
+          cursor: pointer;
+          border: 1px solid transparent;
+          box-sizing: border-box;
         }
-        .primary:disabled { opacity:0.5; cursor:not-allowed; }
-        .ghost, .danger, .tool {
-          border:1px solid ${tarmac.line}; background:transparent; color:${tarmac.text};
-          border-radius:999px; padding:0.6rem 0.85rem; font-weight:700; cursor:pointer;
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+          background: ${tarmac.teal};
+          color: #042f2e;
+          border-color: ${tarmac.teal};
         }
-        .tool.active {
+        .btn-ghost, .btn-tool {
+          background: rgba(15, 23, 42, 0.55);
+          color: ${tarmac.text};
+          border-color: ${tarmac.line};
+        }
+        .btn-tool.active {
           border-color: ${tarmac.teal};
           color: ${tarmac.teal};
-          background: rgba(13,148,136,0.12);
+          background: rgba(13, 148, 136, 0.16);
         }
-        .danger { color:${tarmac.danger}; border-color:rgba(248,113,113,0.45); }
+        .btn-danger {
+          background: rgba(15, 23, 42, 0.55);
+          color: ${tarmac.danger};
+          border-color: rgba(248, 113, 113, 0.45);
+        }
         .search-bar, .lock-bar, .draw-bar, .paint-bar {
           display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;
           margin-bottom:1rem; padding:0.85rem 1rem; border-radius:10px;
           border:1px solid ${tarmac.line}; background:${tarmac.asphaltCard};
         }
-        .search-bar input, .draw-bar input {
-          flex:1; min-width:200px; padding:0.6rem 0.75rem; border-radius:8px;
+        .search-bar input, .draw-bar input[type="text"], .draw-bar > input {
+          flex:1; min-width:200px; min-height:2.55rem; padding:0.6rem 0.75rem; border-radius:999px;
           border:1px solid ${tarmac.line}; background:#0b1220; color:${tarmac.text};
+          box-sizing: border-box;
         }
         .lock-bar.active, .draw-bar {
           border-style: dashed; border-color: ${tarmac.teal};
           background:rgba(13,148,136,0.08);
         }
-        .swatches { display:flex; gap:0.35rem; flex-wrap:wrap; }
-        .swatches.compact { gap:0.25rem; }
-        .swatch {
-          width:18px; height:18px; border-radius:999px; border:2px solid transparent;
-          cursor:pointer; padding:0;
+        .color-field {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+          min-height: 2.55rem;
+          padding: 0.2rem 0.75rem 0.2rem 0.85rem;
+          border-radius: 999px;
+          border: 1px solid ${tarmac.line};
+          background: rgba(15, 23, 42, 0.55);
+          color: ${tarmac.slate};
+          font-size: 0.72rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          cursor: pointer;
         }
-        .swatch.active { border-color:#ecfdf5; box-shadow:0 0 0 2px ${tarmac.teal}; }
+        .color-field.compact {
+          padding: 0.2rem 0.45rem;
+        }
+        .color-field input[type="color"] {
+          width: 1.55rem;
+          height: 1.55rem;
+          padding: 0;
+          border: none;
+          background: transparent;
+          cursor: pointer;
+        }
         .hint { color:${tarmac.slate}; font-size:0.78rem; flex:1; min-width:220px; line-height:1.4; }
         .map-shell {
           height: min(64vh, 600px); min-height: 380px;

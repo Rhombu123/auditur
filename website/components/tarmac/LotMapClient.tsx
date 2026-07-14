@@ -182,7 +182,7 @@ export default function LotMapClient({
             source: "zones",
             paint: {
               "fill-color": ["get", "fillColor"],
-              "fill-opacity": 0.22,
+              "fill-opacity": 0.35,
             },
           });
           map.addLayer({
@@ -196,7 +196,7 @@ export default function LotMapClient({
             paint: {
               "line-color": ["get", "strokeColor"],
               "line-width": 10,
-              "line-opacity": 0.25,
+              "line-opacity": 0.5,
             },
           });
 
@@ -231,7 +231,7 @@ export default function LotMapClient({
             paint: {
               "line-color": brushColor,
               "line-width": 16,
-              "line-opacity": 0.25,
+              "line-opacity": 0.5,
               "line-blur": 0.2,
             },
           });
@@ -591,7 +591,7 @@ export default function LotMapClient({
     if (!map || !mapReady) return;
     if (map.getLayer("draft-line")) {
       map.setPaintProperty("draft-line", "line-color", brushColor);
-      map.setPaintProperty("draft-line", "line-opacity", 0.25);
+      map.setPaintProperty("draft-line", "line-opacity", 0.5);
     }
   }, [mapReady, brushColor]);
 
@@ -628,8 +628,8 @@ export default function LotMapClient({
       map.setPaintProperty("zones-line", "line-opacity", [
         "case",
         ["==", ["get", "name"], zone.name],
-        0.45,
-        0.25,
+        0.75,
+        0.5,
       ]);
     }
   }, [mapReady, focusZoneId, zones, relocating, lockedView]);

@@ -1,4 +1,5 @@
 import { isAdminBypassActive } from "@/lib/admin-access";
+import { lookupAccountById } from "@/lib/account-ids";
 
 const STORAGE_KEY = "auditur.members.v1";
 
@@ -51,6 +52,7 @@ export type TeamMember = {
   id: string;
   fullName: string;
   email: string;
+  auditurId: string | null;
   roleId: string | null;
   createdAt: string;
 };
@@ -80,7 +82,14 @@ function readState(): MembersState {
       writeState(seed);
       return seed;
     }
-    return JSON.parse(raw) as MembersState;
+    const parsed = JSON.parse(raw) as MembersState;
+    return {
+      roles: parsed.roles ?? [],
+      members: (parsed.members ?? []).map((m) => ({
+        ...m,
+        auditurId: m.auditurId ?? null,
+      })),
+    };
   } catch {
     const seed = seedForAdmin();
     writeState(seed);
@@ -125,6 +134,7 @@ function seedForAdmin(): MembersState {
         id: "member-1",
         fullName: "Jordan Lee",
         email: "jordan@dealership.example",
+        auditurId: "482736195",
         roleId: yardId,
         createdAt: new Date().toISOString(),
       },
@@ -132,6 +142,7 @@ function seedForAdmin(): MembersState {
         id: "member-2",
         fullName: "Sam Ortiz",
         email: "sam@dealership.example",
+        auditurId: "719384026",
         roleId: mgrId,
         createdAt: new Date().toISOString(),
       },
@@ -147,7 +158,12 @@ export function listRoles(): TeamRole[] {
   return readState().roles;
 }
 
-export function addMember(input: { fullName: string; email: string; roleId?: string | null }) {
+export function addMember(input: {
+  fullName: string;
+  email: string;
+  roleId?: string | null;
+  auditurId?: string | null;
+}) {
   const state = readState();
   const email = input.email.trim().toLowerCase();
   if (!input.fullName.trim()) throw new Error("Name is required.");
@@ -155,14 +171,43 @@ export function addMember(input: { fullName: string; email: string; roleId?: str
   if (state.members.some((m) => m.email === email)) {
     throw new Error("That email is already on the team.");
   }
+  const auditurId = input.auditurId?.trim() || null;
+  if (auditurId && state.members.some((m) => m.auditurId === auditurId)) {
+    throw new Error("That Auditur ID is already on the team.");
+  }
   state.members.unshift({
     id: `member-${Date.now()}`,
     fullName: input.fullName.trim(),
     email,
+    auditurId,
     roleId: input.roleId ?? null,
     createdAt: new Date().toISOString(),
   });
   writeState(state);
+}
+
+/** Owner/GM adds an employee using their 9-digit Auditur ID (not name/email). */
+export function addMemberByAuditurId(input: {
+  auditurId: string;
+  roleId?: string | null;
+}) {
+  const auditurId = input.auditurId.trim();
+  if (!/^\d{9}$/.test(auditurId)) {
+    throw new Error("Enter a valid 9-digit Auditur ID.");
+  }
+  const account = lookupAccountById(auditurId);
+  if (!account) {
+    throw new Error("No signed-up user found for that ID.");
+  }
+  if (account.accountType === "owner_gm") {
+    throw new Error("That ID belongs to an owner/GM — only employees can be added here.");
+  }
+  addMember({
+    fullName: account.fullName,
+    email: account.email,
+    roleId: input.roleId,
+    auditurId: account.auditurId,
+  });
 }
 
 export function removeMember(id: string) {

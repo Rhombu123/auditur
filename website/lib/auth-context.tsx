@@ -19,7 +19,8 @@ import {
   isAdminEmail,
   isLocalDevHost,
 } from "@/lib/admin-access";
-import { getMagicLinkRedirectTo, storePendingFullName } from "@/lib/auth-redirect";
+import { getMagicLinkRedirectTo, storePendingSignup } from "@/lib/auth-redirect";
+import type { AccountType } from "@/lib/account-ids";
 import {
   clearWebSessionMarker,
   getWebSessionExpiresAt,
@@ -46,7 +47,11 @@ type AuthContextValue = {
   sendSignInLink: (
     email: string,
     mode: "login" | "signup",
-    options?: { fullName?: string; returnTo?: string },
+    options?: {
+      fullName?: string;
+      accountType?: AccountType;
+      returnTo?: string;
+    },
   ) => Promise<"magic" | "admin">;
   signOut: () => Promise<void>;
 };
@@ -154,7 +159,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       email: string,
       mode: "login" | "signup",
-      options?: { fullName?: string; returnTo?: string },
+      options?: {
+        fullName?: string;
+        accountType?: AccountType;
+        returnTo?: string;
+      },
     ): Promise<"magic" | "admin"> => {
       const normalized = normalizeEmail(email);
 
@@ -168,7 +177,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error("Could not enable local admin access.");
         }
         const { enableDemoLot } = await import("@/lib/demo-store");
+        const { ensureAdminAccount } = await import("@/lib/account-ids");
         enableDemoLot();
+        ensureAdminAccount();
         markWebSessionStarted();
         setAdminBypass(true);
         return "admin";
@@ -176,8 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       assertSupabaseConfigured();
 
-      if (mode === "signup" && options?.fullName?.trim()) {
-        storePendingFullName(options.fullName);
+      if (mode === "signup" && options?.fullName?.trim() && options.accountType) {
+        storePendingSignup({
+          fullName: options.fullName,
+          accountType: options.accountType,
+        });
       }
 
       const { error } = await supabase.auth.signInWithOtp({

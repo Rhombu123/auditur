@@ -381,10 +381,14 @@ export function demoCreateZone(input: {
   name: string;
   coordinates: { latitude: number; longitude: number }[];
   colorIndex?: number;
+  strokeColor?: string;
+  fillColor?: string;
 }): LotZone {
   const state = readState();
   const name = input.name.trim() || "Untitled zone";
-  const colors = ZONE_COLOR_OPTIONS[(input.colorIndex ?? 0) % ZONE_COLOR_OPTIONS.length];
+  const preset = ZONE_COLOR_OPTIONS[(input.colorIndex ?? 0) % ZONE_COLOR_OPTIONS.length];
+  const strokeColor = input.strokeColor ?? preset.stroke;
+  const fillColor = input.fillColor ?? preset.fill;
   const normalized = name.toLowerCase();
   const existing = state.zones.find((z) => z.name.toLowerCase() === normalized);
   if (existing) {
@@ -396,8 +400,8 @@ export function demoCreateZone(input: {
     id: `zone-${Date.now()}`,
     name,
     polygons: [input.coordinates],
-    fillColor: colors.fill,
-    strokeColor: colors.stroke,
+    fillColor,
+    strokeColor,
   };
   state.zones.push(zone);
   writeState(state);

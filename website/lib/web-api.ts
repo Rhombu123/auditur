@@ -395,6 +395,8 @@ export async function createLotZone(input: {
   name: string;
   coordinates: { latitude: number; longitude: number }[];
   colorIndex?: number;
+  strokeColor?: string;
+  fillColor?: string;
 }): Promise<LotZone> {
   if (isDemoLotEnabled()) return demoCreateZone(input);
   const name = input.name.trim();
@@ -432,14 +434,16 @@ export async function createLotZone(input: {
   }
 
   const { data: authData } = await supabase.auth.getUser();
-  const colors = zoneColorByIndex(input.colorIndex ?? 0);
+  const preset = zoneColorByIndex(input.colorIndex ?? 0);
+  const fillColor = input.fillColor ?? preset.fill;
+  const strokeColor = input.strokeColor ?? preset.stroke;
   const { data, error } = await supabase
     .from("lot_zones")
     .insert({
       name,
       coordinates: [newPolygon],
-      fill_color: colors.fill,
-      stroke_color: colors.stroke,
+      fill_color: fillColor,
+      stroke_color: strokeColor,
       created_by: authData.user?.id ?? null,
     })
     .select("*")
