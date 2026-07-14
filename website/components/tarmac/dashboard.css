@@ -208,6 +208,14 @@
   align-content: start;
 }
 
+.desk-nav-foot {
+  display: grid;
+  gap: 0.1rem;
+  padding-top: 0.65rem;
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .desk-nav-btn {
   display: flex;
   align-items: center;

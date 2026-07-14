@@ -7,7 +7,9 @@ import { AuditDial } from "@/components/tarmac/AuditDial";
 import { AuditPanel } from "@/components/tarmac/AuditPanel";
 import { MapPanel } from "@/components/tarmac/MapPanel";
 import { MembersPanel } from "@/components/tarmac/MembersPanel";
+import { ProfilePanel } from "@/components/tarmac/ProfilePanel";
 import { ScanFeed } from "@/components/tarmac/ScanFeed";
+import { SettingsPanel } from "@/components/tarmac/SettingsPanel";
 import { UploadPanel } from "@/components/tarmac/UploadPanel";
 import { UploadStrip } from "@/components/tarmac/UploadStrip";
 import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
@@ -24,7 +26,15 @@ import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
 import { fetchDashboardData } from "@/lib/web-api";
 import { supabaseConfigured } from "@/lib/supabase-browser";
 
-type TabId = "overview" | "audit" | "upload" | "vehicles" | "map" | "members";
+type TabId =
+  | "overview"
+  | "audit"
+  | "upload"
+  | "vehicles"
+  | "map"
+  | "members"
+  | "profile"
+  | "settings";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -33,6 +43,11 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "vehicles", label: "Vehicles" },
   { id: "map", label: "Map" },
   { id: "members", label: "Members" },
+];
+
+const FOOT_TABS: { id: TabId; label: string }[] = [
+  { id: "profile", label: "Profile" },
+  { id: "settings", label: "Settings" },
 ];
 
 const TITLES: Record<TabId, { title: string; blurb: string }> = {
@@ -59,6 +74,14 @@ const TITLES: Record<TabId, { title: string; blurb: string }> = {
   members: {
     title: "Members",
     blurb: "Invite employees by Auditur ID and manage roles.",
+  },
+  profile: {
+    title: "Profile",
+    blurb: "Your account details and Auditur ID.",
+  },
+  settings: {
+    title: "Settings",
+    blurb: "Desk preferences for this browser.",
   },
 };
 
@@ -179,6 +202,19 @@ export function TarmacDashboard() {
             </button>
           ))}
         </nav>
+        <nav className="desk-nav-foot" aria-label="Account">
+          {FOOT_TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={tab === item.id ? "desk-nav-btn active" : "desk-nav-btn"}
+              onClick={() => setTab(item.id)}
+            >
+              <span className="desk-nav-dot" aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </nav>
       </aside>
 
       <div className="desk-main">
@@ -225,9 +261,18 @@ export function TarmacDashboard() {
 
           {error ? <p className="desk-error">{error}</p> : null}
 
-          {loading && !data ? (
+          {tab === "profile" ? <ProfilePanel /> : null}
+          {tab === "settings" ? (
+            <SettingsPanel
+              onDemoReset={() => {
+                void load({ uploadId: null });
+              }}
+            />
+          ) : null}
+
+          {loading && !data && tab !== "profile" && tab !== "settings" ? (
             <p className="desk-loading">Loading lot data…</p>
-          ) : (
+          ) : tab !== "profile" && tab !== "settings" ? (
             <>
               {tab === "overview" ? (
                 <>
@@ -292,7 +337,7 @@ export function TarmacDashboard() {
 
               {tab === "members" ? <MembersPanel /> : null}
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
