@@ -214,7 +214,48 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
             )}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="paint-bar">
+          <span className="hint">Camera locked — paint sections on this view.</span>
+          <div className="hero-actions">
+            {!drawing ? (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  setDrawing(true);
+                  setDrawTool("paint");
+                }}
+              >
+                Paint section
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busy || draft.length < 2}
+                  className="primary"
+                  onClick={() => void handleSaveZone()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setDraft([]);
+                    setDrawing(false);
+                    setDrawTool("paint");
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="search-bar">
         <input
@@ -383,7 +424,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           background: rgba(13,148,136,0.12);
         }
         .danger { color:${tarmac.danger}; border-color:rgba(248,113,113,0.45); }
-        .search-bar, .lock-bar, .draw-bar {
+        .search-bar, .lock-bar, .draw-bar, .paint-bar {
           display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;
           margin-bottom:1rem; padding:0.85rem 1rem; border-radius:10px;
           border:1px solid ${tarmac.line}; background:${tarmac.asphaltCard};
