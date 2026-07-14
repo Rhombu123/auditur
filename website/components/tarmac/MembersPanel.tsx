@@ -416,6 +416,16 @@ export function MembersPanel() {
           font-style: normal;
           margin-top: 0.15rem;
         }
+        @media (max-width: 640px) {
+          .row-actions {
+            width: 100%;
+          }
+          .row-actions :global(.desk-select),
+          .row-actions :global(select) {
+            flex: 1;
+            min-width: 0;
+          }
+        }
       `}</style>
     </div>
   );

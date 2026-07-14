@@ -229,6 +229,28 @@ const styles = `
     min-width: 200px;
     max-width: 320px;
   }
+  @media (max-width: 900px) {
+    .filters {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .seg {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .search {
+      max-width: none;
+      min-width: 0;
+      width: 100%;
+    }
+    .hero-actions {
+      width: 100%;
+    }
+    .hero-actions :global(.ui-btn) {
+      flex: 1;
+    }
+  }
   .table { display: grid; gap: 0.45rem; }
   .row {
     display: flex;

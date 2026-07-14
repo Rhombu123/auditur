@@ -399,6 +399,16 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           margin-bottom: 1rem;
           background: ${tarmac.ink};
         }
+        @media (max-width: 900px) {
+          .map-shell {
+            height: min(52vh, 460px);
+            min-height: 260px;
+            border-radius: 8px;
+          }
+          .color-field span {
+            display: none;
+          }
+        }
         .zone-list { display: grid; gap: 0.55rem; }
         .zone-row {
           display: flex;
