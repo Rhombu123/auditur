@@ -53,8 +53,7 @@ npm run website:build  # output to public/
 
 ### Manager dashboard
 
-- **Sign up / Sign in:** `/signup` and `/login` — email a **magic link** (no password or code). After verify, you return to the page you came from (`?next=`).
-- **Confirm:** `/auth/confirm/` — verifies the magic link, then returns to that prior page
+- **Sign up / Sign in:** `/signup` and `/login` — use a work email and password. Signup also asks whether the user is an owner/GM or employee.
 - **Admin unlock:** `/auth/admin/?key=auditur-lot-admin` — opens the dashboard as `admin@auditur.app` with no email login
 - **Dashboard:** `/dashboard` — live audit progress, scan feed, lot sections, upload log
 
@@ -63,7 +62,7 @@ npm run website:build  # output to public/
 | | |
 |---|---|
 | Local admin email | `admin@auditur.app` |
-| How | On `localhost`, enter that email on `/login` — goes straight to the dashboard (no magic link) |
+| How | On `localhost`, enter that email and any 8-character password on `/login` |
 | Alt | `http://localhost:5173/auth/admin/` |
 
 This does **not** work on production (`auditur-ruby.vercel.app`).
@@ -73,12 +72,9 @@ Set these on Vercel (and in `website/.env.local` for local dev):
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-**Email: magic link** — in Supabase → Authentication → Email Templates → **Magic Link**, use `{{ .ConfirmationURL }}` (not `{{ .Token }}`). Example:
-
-```html
-<h2>Sign in to Auditur</h2>
-<p><a href="{{ .ConfirmationURL }}">Open magic link</a></p>
-```
+**Immediate signup:** in Supabase → Authentication → Providers → Email, turn off
+**Confirm email**. Otherwise Supabase will still send a confirmation link before
+creating a session.
 
 **Production URLs** — in Supabase → Authentication → URL Configuration:
 

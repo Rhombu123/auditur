@@ -14,10 +14,10 @@ import { tarmac } from "@/lib/tarmac-theme";
 
 type Props = {
   onChanged: () => Promise<void>;
+  searchQuery: string;
 };
 
-export function VehiclesPanel({ onChanged }: Props) {
-  const [query, setQuery] = useState("");
+export function VehiclesPanel({ onChanged, searchQuery }: Props) {
   const [tab, setTab] = useState<"scanned" | "inventory">("scanned");
   const [scanned, setScanned] = useState<ScannedVehicleRow[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -40,7 +40,7 @@ export function VehiclesPanel({ onChanged }: Props) {
   }, []);
 
   const filteredScanned = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
     if (!q) return scanned;
     return scanned.filter(
       (row) =>
@@ -48,10 +48,10 @@ export function VehiclesPanel({ onChanged }: Props) {
         row.model.toLowerCase().includes(q) ||
         row.color.toLowerCase().includes(q),
     );
-  }, [scanned, query]);
+  }, [scanned, searchQuery]);
 
   const filteredInventory = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
     if (!q) return inventory;
     return inventory.filter(
       (row) =>
@@ -59,7 +59,7 @@ export function VehiclesPanel({ onChanged }: Props) {
         row.model.toLowerCase().includes(q) ||
         row.color.toLowerCase().includes(q),
     );
-  }, [inventory, query]);
+  }, [inventory, searchQuery]);
 
   async function handleSave(row: ScannedVehicleRow, model: string, color: string) {
     setBusyId(row.id);
@@ -93,12 +93,6 @@ export function VehiclesPanel({ onChanged }: Props) {
   return (
     <div className="panel">
       <div className="desk-toolbar">
-        <input
-          className="desk-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search VIN, model, color…"
-        />
         <button
           type="button"
           className={tab === "scanned" ? "ui-btn ui-btn-tool active" : "ui-btn ui-btn-tool"}

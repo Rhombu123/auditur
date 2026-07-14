@@ -1,13 +1,10 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 
 import type { AccountType } from "@/lib/account-ids";
 
 import "./auth.css";
-
-type Step = "form" | "sent";
 
 export type SignupPayload = {
   fullName: string;
@@ -16,7 +13,7 @@ export type SignupPayload = {
 
 type Props = {
   mode: "login" | "signup";
-  onSendLink: (email: string, signup?: SignupPayload) => Promise<void>;
+  onSubmit: (email: string, password: string, signup?: SignupPayload) => Promise<void>;
 };
 
 function MailIcon() {
@@ -38,28 +35,36 @@ function UserIcon() {
   );
 }
 
-export function EmailAuthForm({ mode, onSendLink }: Props) {
-  const [step, setStep] = useState<Step>("form");
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function EmailAuthForm({ mode, onSubmit }: Props) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSend() {
+  async function handleSubmit() {
     setError(null);
     setLoading(true);
     try {
       if (mode === "signup") {
         if (!fullName.trim()) throw new Error("Enter your name.");
         if (!accountType) throw new Error("Choose whether you are an owner/GM or an employee.");
-        await onSendLink(email, { fullName, accountType });
+        await onSubmit(email, password, { fullName, accountType });
       } else {
-        await onSendLink(email);
+        await onSubmit(email, password);
       }
-      setStep("sent");
-    } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Could not send email.");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Authentication failed.");
     } finally {
       setLoading(false);
     }
@@ -67,19 +72,12 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
 
   const canSubmit =
     email.includes("@") &&
+    password.length >= 8 &&
     (mode === "login" || (Boolean(fullName.trim()) && accountType !== null));
 
   return (
     <div>
-      <AnimatePresence mode="wait">
-        {step === "form" ? (
-          <motion.div
-            key="form"
-            initial={{ opacity: 0, x: 12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -12 }}
-            transition={{ duration: 0.25 }}
-          >
+      <div>
             {mode === "signup" ? (
               <>
                 <div className="auth-field">
@@ -155,49 +153,38 @@ export function EmailAuthForm({ mode, onSendLink }: Props) {
               </div>
             </div>
 
-            <button
-              type="button"
-              className="auth-btn"
-              disabled={loading || !canSubmit}
-              onClick={() => void handleSend()}
-            >
-              {loading ? "Sending…" : "Continue with email"}
-            </button>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="sent"
-            initial={{ opacity: 0, x: 12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -12 }}
-            transition={{ duration: 0.25 }}
-          >
-            <p className="auth-hint">
-              Check <strong>{email}</strong> and open the <strong>magic link</strong> in
-              that email. It verifies your sign-in and brings you back to where you left off.
-            </p>
+            <div className="auth-field">
+              <label htmlFor="password">Password</label>
+              <div className="auth-input-wrap">
+                <LockIcon />
+                <input
+                  id="password"
+                  className="auth-input"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="At least 8 characters"
+                  minLength={8}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                />
+              </div>
+            </div>
 
             <button
               type="button"
               className="auth-btn"
-              onClick={() => void handleSend()}
-              disabled={loading}
+              disabled={loading || !canSubmit}
+              onClick={() => void handleSubmit()}
             >
-              {loading ? "Sending…" : "Resend magic link"}
+              {loading
+                ? mode === "signup"
+                  ? "Creating account…"
+                  : "Signing in…"
+                : mode === "signup"
+                  ? "Create account"
+                  : "Sign in"}
             </button>
-            <button
-              type="button"
-              className="auth-link-btn"
-              onClick={() => {
-                setStep("form");
-                setError(null);
-              }}
-            >
-              Use a different email
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
 
       {error ? <p className="auth-error">{error}</p> : null}
     </div>

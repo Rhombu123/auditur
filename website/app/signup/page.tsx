@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
 function SignupContent() {
-  const { session, loading, sendSignInLink, isAdminBypass } = useAuth();
+  const { session, loading, signUpWithPassword, isAdminBypass } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = sanitizeReturnTo(searchParams.get("next"));
@@ -27,7 +27,7 @@ function SignupContent() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Get a web command center for your lot. We'll email a magic link to verify you — no password or code."
+      subtitle="Choose your role and create an account with your work email and password."
       footer={
         <>
           Already registered?{" "}
@@ -37,15 +37,10 @@ function SignupContent() {
     >
       <EmailAuthForm
         mode="signup"
-        onSendLink={async (email, signup) => {
-          const result = await sendSignInLink(email, "signup", {
-            fullName: signup?.fullName,
-            accountType: signup?.accountType,
-            returnTo,
-          });
-          if (result === "admin") {
-            router.replace(returnTo);
-          }
+        onSubmit={async (email, password, signup) => {
+          if (!signup) throw new Error("Complete your account details.");
+          await signUpWithPassword(email, password, signup);
+          router.replace(returnTo);
         }}
       />
     </AuthShell>

@@ -8,10 +8,10 @@ import {
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   useWindowDimensions,

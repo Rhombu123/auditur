@@ -71,6 +71,14 @@ type TabId =
   | "profile"
   | "settings";
 
+type SearchTab = Extract<TabId, "audit" | "vehicles" | "map">;
+
+const SEARCH_PLACEHOLDERS: Record<SearchTab, string> = {
+  audit: "Search audit…",
+  vehicles: "Search vehicles…",
+  map: "Find VIN on map…",
+};
+
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "audit", label: "Audit" },
@@ -178,6 +186,12 @@ export function TarmacDashboard() {
   const [demoMode, setDemoMode] = useState(false);
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [focusZoneId, setFocusZoneId] = useState<string | null>(null);
+  const [searches, setSearches] = useState<Record<SearchTab, string>>({
+    audit: "",
+    vehicles: "",
+    map: "",
+  });
+  const [mapSearchRequest, setMapSearchRequest] = useState(0);
   const selectedUploadIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -325,6 +339,29 @@ export function TarmacDashboard() {
             </p>
           </div>
           <div className="desk-top-actions">
+            {tab === "audit" || tab === "vehicles" || tab === "map" ? (
+              <label className="desk-top-search">
+                <svg viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden>
+                  <circle cx="8.5" cy="8.5" r="5.25" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="m12.5 12.5 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+                <input
+                  type="search"
+                  value={searches[tab]}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSearches((current) => ({ ...current, [tab]: value }));
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && tab === "map") {
+                      setMapSearchRequest((request) => request + 1);
+                    }
+                  }}
+                  placeholder={SEARCH_PLACEHOLDERS[tab]}
+                  aria-label={SEARCH_PLACEHOLDERS[tab]}
+                />
+              </label>
+            ) : null}
             <div className="desk-user">
               <span>{isAdminBypass ? "Admin" : "Signed in"}</span>
               <strong>{displayName(user)}</strong>
@@ -410,7 +447,9 @@ export function TarmacDashboard() {
                 </>
               ) : null}
 
-              {tab === "audit" && data ? <AuditPanel data={data} onRefresh={refresh} /> : null}
+              {tab === "audit" && data ? (
+                <AuditPanel data={data} onRefresh={refresh} searchQuery={searches.audit} />
+              ) : null}
 
               {tab === "upload" ? (
                 <UploadPanel
@@ -421,13 +460,17 @@ export function TarmacDashboard() {
                 />
               ) : null}
 
-              {tab === "vehicles" ? <VehiclesPanel onChanged={refresh} /> : null}
+              {tab === "vehicles" ? (
+                <VehiclesPanel onChanged={refresh} searchQuery={searches.vehicles} />
+              ) : null}
 
               {tab === "map" ? (
                 <MapPanel
                   onChanged={refresh}
                   focusZoneId={focusZoneId}
                   onFocusZone={setFocusZoneId}
+                  searchQuery={searches.map}
+                  searchRequest={mapSearchRequest}
                 />
               ) : null}
 

@@ -10,6 +10,7 @@ export type AccountRecord = {
   fullName: string;
   email: string;
   accountType: AccountType;
+  dealershipName?: string;
   createdAt: string;
 };
 
@@ -81,13 +82,20 @@ export function registerAccount(input: {
   email: string;
   accountType: AccountType;
   auditurId?: string;
+  dealershipName?: string;
 }): AccountRecord {
   const email = input.email.trim().toLowerCase();
   const dir = readDirectory();
   const existing = Object.values(dir).find((row) => row.email === email);
   if (existing) {
+    if (input.auditurId && input.auditurId !== existing.auditurId) {
+      delete dir[existing.auditurId];
+      existing.auditurId = input.auditurId;
+    }
     existing.fullName = input.fullName.trim() || existing.fullName;
     existing.accountType = input.accountType;
+    existing.dealershipName = input.dealershipName?.trim() || existing.dealershipName;
+    dir[existing.auditurId] = existing;
     writeDirectory(dir);
     saveSelfProfile(existing);
     return existing;
@@ -106,6 +114,7 @@ export function registerAccount(input: {
     fullName: input.fullName.trim() || email.split("@")[0] || "Member",
     email,
     accountType: input.accountType,
+    dealershipName: input.dealershipName?.trim() || undefined,
     createdAt: new Date().toISOString(),
   };
   dir[auditurId] = record;
@@ -122,6 +131,24 @@ export function lookupAccountById(auditurId: string): AccountRecord | null {
 
 export function saveSelfProfile(record: AccountRecord): void {
   window.localStorage.setItem(SELF_PROFILE_KEY, JSON.stringify(record));
+}
+
+export function updateSelfProfile(input: {
+  fullName: string;
+  dealershipName?: string;
+}): AccountRecord | null {
+  const current = loadSelfProfile();
+  if (!current) return null;
+  const next: AccountRecord = {
+    ...current,
+    fullName: input.fullName.trim() || current.fullName,
+    dealershipName: input.dealershipName?.trim() || undefined,
+  };
+  const directory = readDirectory();
+  directory[next.auditurId] = next;
+  writeDirectory(directory);
+  saveSelfProfile(next);
+  return next;
 }
 
 export function loadSelfProfile(): AccountRecord | null {

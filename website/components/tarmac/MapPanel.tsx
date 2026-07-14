@@ -35,13 +35,21 @@ type Props = {
   onChanged: () => Promise<void>;
   focusZoneId?: string | null;
   onFocusZone?: (zoneId: string) => void;
+  searchQuery: string;
+  searchRequest: number;
 };
 
 type Point = { latitude: number; longitude: number };
 
 const DEFAULT_BRUSH = "#0D9488";
 
-export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) {
+export function MapPanel({
+  onChanged,
+  focusZoneId = null,
+  onFocusZone,
+  searchQuery,
+  searchRequest,
+}: Props) {
   const [zones, setZones] = useState<LotZone[]>([]);
   const [vehicles, setVehicles] = useState<ScannedVehicleRow[]>([]);
   const [drawing, setDrawing] = useState(false);
@@ -51,10 +59,10 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
   const [brushHex, setBrushHex] = useState(DEFAULT_BRUSH);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [vinQuery, setVinQuery] = useState("");
   const [lockedView, setLockedView] = useState<LockedLotView | null>(null);
   const [relocating, setRelocating] = useState(true);
   const mapApiRef = useRef<LotMapApi | null>(null);
+  const lastSearchRequestRef = useRef(0);
   const locked = Boolean(lockedView && !relocating);
 
   useEffect(() => {
@@ -158,16 +166,30 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     }
   }
 
-  function handleSearchVin() {
-    const found = mapApiRef.current?.focusVin(vinQuery);
+  const handleSearchVin = useCallback((query: string) => {
+    const found = mapApiRef.current?.focusVin(query);
     if (!found) {
       setError("No vehicle matched that VIN (try last 6, last 8, or full VIN).");
       return;
     }
     setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (searchRequest <= lastSearchRequestRef.current) return;
+    lastSearchRequestRef.current = searchRequest;
+    handleSearchVin(searchQuery);
+  }, [handleSearchVin, searchQuery, searchRequest]);
+
+  function handleCancelDrawing() {
+    setDraft([]);
+    setDrawing(false);
+    setDrawTool("paint");
+    setZoneName("");
+    setError(null);
   }
 
-  const paintActions = !drawing ? (
+  const paintButton = (
     <button
       type="button"
       className="ui-btn ui-btn-primary"
@@ -178,84 +200,10 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     >
       Paint section
     </button>
-  ) : (
-    <div className="btn-row">
-      <button
-        type="button"
-        disabled={busy || draft.length < 2}
-        className="ui-btn ui-btn-primary"
-        onClick={() => void handleSaveZone()}
-      >
-        Save
-      </button>
-      <button
-        type="button"
-        className="ui-btn ui-btn-secondary"
-        disabled={busy}
-        onClick={() => {
-          setDraft([]);
-          setDrawing(false);
-          setDrawTool("paint");
-        }}
-      >
-        Cancel
-      </button>
-    </div>
   );
 
   return (
     <div className="panel">
-      {!locked ? (
-        <div className="desk-panel-hero">
-          <div>
-            <h2>Sections & camera</h2>
-            <p>
-              Highlight at 50% opacity, erase mistakes, then save. Lock the camera when the lot is
-              framed.
-            </p>
-          </div>
-          {paintActions}
-        </div>
-      ) : (
-        <div className="desk-toolbar">
-          <span className="desk-hint">Camera locked — paint sections on this view.</span>
-          {paintActions}
-        </div>
-      )}
-
-      <div className="desk-toolbar">
-        <input
-          className="desk-input"
-          value={vinQuery}
-          onChange={(e) => setVinQuery(e.target.value)}
-          placeholder="Search VIN (last 6, last 8, or full)"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearchVin();
-          }}
-        />
-        <button type="button" className="ui-btn ui-btn-primary" onClick={handleSearchVin}>
-          Find
-        </button>
-      </div>
-
-      <div className={`desk-toolbar ${relocating ? "accent" : ""}`}>
-        {relocating ? (
-          <>
-            <span className="desk-hint">Frame your lot, then lock. Pan and zoom stay free until then.</span>
-            <button type="button" className="ui-btn ui-btn-primary" onClick={handleLockArea}>
-              Lock this area
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="desk-hint">Lot camera locked — pan, zoom, and rotate are off.</span>
-            <button type="button" className="ui-btn ui-btn-secondary" onClick={handleChangePlacement}>
-              Change placement
-            </button>
-          </>
-        )}
-      </div>
-
       {drawing ? (
         <div className="desk-toolbar accent">
           <input
@@ -290,8 +238,58 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           <button type="button" className="ui-btn ui-btn-secondary" onClick={() => setDraft([])}>
             Clear stroke
           </button>
+          <button
+            type="button"
+            disabled={busy || draft.length < 2}
+            className="ui-btn ui-btn-primary"
+            onClick={() => void handleSaveZone()}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            className="ui-btn ui-btn-secondary"
+            disabled={busy}
+            onClick={handleCancelDrawing}
+          >
+            Cancel
+          </button>
         </div>
-      ) : null}
+      ) : !locked ? (
+        <div className="desk-panel-hero">
+          <div>
+            <h2>Sections & camera</h2>
+            <p>
+              Highlight at 50% opacity, erase mistakes, then save. Lock the camera when the lot is
+              framed.
+            </p>
+          </div>
+          {paintButton}
+        </div>
+      ) : (
+        <div className="desk-toolbar">
+          <span className="desk-hint">Camera locked — paint sections on this view.</span>
+          {paintButton}
+        </div>
+      )}
+
+      <div className={`desk-toolbar ${relocating ? "accent" : ""}`}>
+        {relocating ? (
+          <>
+            <span className="desk-hint">Frame your lot, then lock. Pan and zoom stay free until then.</span>
+            <button type="button" className="ui-btn ui-btn-primary" onClick={handleLockArea}>
+              Lock this area
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="desk-hint">Lot camera locked — pan, zoom, and rotate are off.</span>
+            <button type="button" className="ui-btn ui-btn-secondary" onClick={handleChangePlacement}>
+              Change placement
+            </button>
+          </>
+        )}
+      </div>
 
       {error ? <p className="err">{error}</p> : null}
 

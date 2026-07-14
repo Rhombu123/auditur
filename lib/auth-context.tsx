@@ -14,11 +14,17 @@ import { getErrorMessage } from "@/lib/errors";
 import { AUTH_ENABLED } from "@/lib/auth-config";
 import { supabase } from "@/lib/supabase";
 
+export type AccountType = "owner_gm" | "employee";
+
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
-  sendEmailCode: (email: string) => Promise<void>;
-  verifyEmailCode: (email: string, token: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    details: { fullName: string; accountType: AccountType },
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -44,34 +50,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
-  const sendEmailCode = useCallback(async (email: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const normalized = normalizeEmail(email);
-    // Do not pass emailRedirectTo — that encourages magic-link emails.
-    // Supabase sends a 6-digit code when the Magic Link template uses {{ .Token }}.
-    const { error } = await supabase.auth.signInWithOtp({
+    if (!password) throw new Error("Enter your password.");
+    const { error } = await supabase.auth.signInWithPassword({
       email: normalized,
-      options: { shouldCreateUser: true },
+      password,
     });
     if (error) {
-      throw new Error(formatAuthError(error, "Could not send verification code."));
+      throw new Error(formatAuthError(error, "Could not sign in."));
     }
   }, []);
 
-  const verifyEmailCode = useCallback(async (email: string, token: string) => {
+  const signUp = useCallback(async (
+    email: string,
+    password: string,
+    details: { fullName: string; accountType: AccountType },
+  ) => {
     const normalized = normalizeEmail(email);
-    const code = token.replace(/\D/g, "");
-    if (code.length < 6) {
-      throw new Error("Enter the 6-digit code from your email.");
-    }
-
-    const { error } = await supabase.auth.verifyOtp({
+    if (password.length < 8) throw new Error("Use at least 8 characters for your password.");
+    if (!details.fullName.trim()) throw new Error("Enter your full name.");
+    const { data, error } = await supabase.auth.signUp({
       email: normalized,
-      token: code,
-      type: "email",
+      password,
+      options: {
+        data: {
+          full_name: details.fullName.trim(),
+          account_type: details.accountType,
+        },
+      },
     });
-
     if (error) {
-      throw new Error(formatAuthError(error, "Invalid or expired code."));
+      throw new Error(formatAuthError(error, "Could not create account."));
+    }
+    if (!data.session) {
+      throw new Error(
+        "Email confirmation is still enabled in Supabase. Turn off Confirm email to use immediate password signup.",
+      );
     }
   }, []);
 
@@ -83,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, sendEmailCode, verifyEmailCode, signOut }),
-    [session, loading, sendEmailCode, verifyEmailCode, signOut],
+    () => ({ session, loading, signIn, signUp, signOut }),
+    [session, loading, signIn, signUp, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

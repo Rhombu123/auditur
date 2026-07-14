@@ -9,14 +9,14 @@ import { tarmac } from "@/lib/tarmac-theme";
 type Props = {
   data: DashboardData;
   onRefresh: () => Promise<void>;
+  searchQuery: string;
 };
 
 type ListKey = "missing" | "notOnList" | "scanned";
 
-export function AuditPanel({ data, onRefresh }: Props) {
+export function AuditPanel({ data, onRefresh, searchQuery }: Props) {
   const audit = data.audit;
   const [list, setList] = useState<ListKey>("missing");
-  const [query, setQuery] = useState("");
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -28,7 +28,7 @@ export function AuditPanel({ data, onRefresh }: Props) {
   }, [audit, list]);
 
   const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
     if (!q) return sourceRows;
     return sourceRows.filter(
       (row) =>
@@ -36,7 +36,7 @@ export function AuditPanel({ data, onRefresh }: Props) {
         row.model.toLowerCase().includes(q) ||
         row.color.toLowerCase().includes(q),
     );
-  }, [sourceRows, query]);
+  }, [sourceRows, searchQuery]);
 
   async function handleExport() {
     setMessage(null);
@@ -112,13 +112,6 @@ export function AuditPanel({ data, onRefresh }: Props) {
             </button>
           ))}
         </div>
-        <input
-          className="desk-input search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search VIN, model, color…"
-          aria-label="Search audit list"
-        />
       </div>
 
       {message ? <p className="msg">{message}</p> : null}
@@ -126,7 +119,7 @@ export function AuditPanel({ data, onRefresh }: Props) {
       <div className="table">
         {rows.length === 0 ? (
           <p className="empty">
-            {query.trim() ? "No vehicles match that search." : "Nothing in this list."}
+            {searchQuery.trim() ? "No vehicles match that search." : "Nothing in this list."}
           </p>
         ) : (
           rows.map((row) => (

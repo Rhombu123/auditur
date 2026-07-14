@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
 function LoginContent() {
-  const { session, loading, sendSignInLink, isAdminBypass } = useAuth();
+  const { session, loading, signInWithPassword, isAdminBypass } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = sanitizeReturnTo(searchParams.get("next"));
@@ -27,7 +27,7 @@ function LoginContent() {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Enter your email and we'll send a magic link. Open it on this device to verify and return here — no password or code."
+      subtitle="Sign in with your work email and password."
       footer={
         <>
           Don&apos;t have an account?{" "}
@@ -37,11 +37,9 @@ function LoginContent() {
     >
       <EmailAuthForm
         mode="login"
-        onSendLink={async (email) => {
-          const result = await sendSignInLink(email, "login", { returnTo });
-          if (result === "admin") {
-            router.replace(returnTo);
-          }
+        onSubmit={async (email, password) => {
+          await signInWithPassword(email, password);
+          router.replace(returnTo);
         }}
       />
     </AuthShell>

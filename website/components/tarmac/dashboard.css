@@ -16,7 +16,7 @@
   --desk-danger-soft: #fef2f2;
   --desk-radius: 10px;
   --desk-btn-h: 36px;
-  --desk-font: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --desk-font: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 
   min-height: 100vh;
   display: grid;
@@ -244,6 +244,14 @@
   .desk-top-actions {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: nowrap;
+  }
+
+  .desk-top-search {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 18rem;
+    min-width: 0;
   }
 }
 
@@ -642,6 +650,47 @@
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.desk-top-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: clamp(11rem, 20vw, 15rem);
+  height: 2.25rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--desk-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--desk-muted);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.desk-top-search:focus-within {
+  border-color: var(--desk-teal);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.desk-top-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--desk-text);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.desk-top-search input::placeholder {
+  color: var(--desk-muted);
+}
+
+.desk-top-search input::-webkit-search-cancel-button {
+  cursor: pointer;
 }
 
 .desk-user {

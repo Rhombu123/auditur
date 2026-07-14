@@ -23,7 +23,7 @@ export default function AdminUnlockPage() {
     return (
       <AuthShell
         title="Local only"
-        subtitle="Admin unlock works only on localhost — production requires a normal magic-link manager account."
+        subtitle="Admin unlock works only on localhost — production requires a normal manager email and password."
         footer={
           <>
             <Link href="/login/">Manager sign in</Link>

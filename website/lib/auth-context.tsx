@@ -19,8 +19,7 @@ import {
   isAdminEmail,
   isLocalDevHost,
 } from "@/lib/admin-access";
-import { getMagicLinkRedirectTo, storePendingSignup } from "@/lib/auth-redirect";
-import type { AccountType } from "@/lib/account-ids";
+import { registerAccount, type AccountType } from "@/lib/account-ids";
 import {
   clearWebSessionMarker,
   getWebSessionExpiresAt,
@@ -44,15 +43,15 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   isAdminBypass: boolean;
-  sendSignInLink: (
+  signInWithPassword: (
     email: string,
-    mode: "login" | "signup",
-    options?: {
-      fullName?: string;
-      accountType?: AccountType;
-      returnTo?: string;
-    },
-  ) => Promise<"magic" | "admin">;
+    password: string,
+  ) => Promise<"signed-in" | "admin">;
+  signUpWithPassword: (
+    email: string,
+    password: string,
+    details: { fullName: string; accountType: AccountType },
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -155,17 +154,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const sendSignInLink = useCallback(
-    async (
-      email: string,
-      mode: "login" | "signup",
-      options?: {
-        fullName?: string;
-        accountType?: AccountType;
-        returnTo?: string;
-      },
-    ): Promise<"magic" | "admin"> => {
+  const signInWithPassword = useCallback(
+    async (email: string, password: string): Promise<"signed-in" | "admin"> => {
       const normalized = normalizeEmail(email);
+      if (!password) throw new Error("Enter your password.");
 
       if (isAdminEmail(normalized)) {
         if (!isLocalDevHost()) {
@@ -186,28 +178,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       assertSupabaseConfigured();
-
-      if (mode === "signup" && options?.fullName?.trim() && options.accountType) {
-        storePendingSignup({
-          fullName: options.fullName,
-          accountType: options.accountType,
-        });
-      }
-
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: normalized,
-        options: {
-          shouldCreateUser: mode === "signup",
-          emailRedirectTo: getMagicLinkRedirectTo(options?.returnTo),
-        },
+        password,
       });
       if (error) {
-        throw new Error(formatAuthError(error, "Could not send magic link."));
+        throw new Error(formatAuthError(error, "Could not sign in."));
       }
-      return "magic";
+      return "signed-in";
     },
     [],
   );
+
+  const signUpWithPassword = useCallback(async (
+    email: string,
+    password: string,
+    details: { fullName: string; accountType: AccountType },
+  ) => {
+    const normalized = normalizeEmail(email);
+    if (password.length < 8) throw new Error("Use at least 8 characters for your password.");
+    if (!details.fullName.trim()) throw new Error("Enter your full name.");
+    assertSupabaseConfigured();
+
+    const { data, error } = await supabase.auth.signUp({
+      email: normalized,
+      password,
+      options: {
+        data: {
+          full_name: details.fullName.trim(),
+          account_type: details.accountType,
+        },
+      },
+    });
+    if (error) {
+      throw new Error(formatAuthError(error, "Could not create account."));
+    }
+    if (!data.session) {
+      throw new Error(
+        "Email confirmation is still enabled in Supabase. Turn off Confirm email to use immediate password signup.",
+      );
+    }
+
+    const auditurId = data.user?.user_metadata?.auditur_id;
+    registerAccount({
+      fullName: details.fullName,
+      email: normalized,
+      accountType: details.accountType,
+      auditurId: typeof auditurId === "string" ? auditurId : undefined,
+    });
+  }, []);
 
   const signOut = useCallback(async () => {
     clearAdminBypass();
@@ -223,10 +242,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: adminBypass ? ADMIN_USER : (session?.user ?? null),
       loading,
       isAdminBypass: adminBypass,
-      sendSignInLink,
+      signInWithPassword,
+      signUpWithPassword,
       signOut,
     }),
-    [session, adminBypass, loading, sendSignInLink, signOut],
+    [session, adminBypass, loading, signInWithPassword, signUpWithPassword, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

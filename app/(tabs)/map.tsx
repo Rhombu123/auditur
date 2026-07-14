@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MapDrawToolbar, type ZoneEditorTool } from "@/components/map-draw-toolbar";
 import { MapVehicleSheet } from "@/components/map-vehicle-sheet";
+import { ProfileAvatarButton } from "@/components/profile-avatar-button";
 import { ZoneHandleMarker } from "@/components/zone-handle-marker";
 import { Chip } from "@/components/ui/chip";
 import { CoLocatedVehiclesModal } from "@/components/co-located-vehicles-modal";
@@ -59,7 +60,7 @@ import {
   type EditableShape,
   type ZoneShapeKind,
 } from "@/lib/zone-shapes";
-import { formatVinPrimary, formatVinSecondary } from "@/lib/vin-display";
+import { formatVinPrimary } from "@/lib/vin-display";
 import { matchesVehicleSearch } from "@/lib/vin-search";
 import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
 
@@ -688,6 +689,10 @@ export default function MapScreen() {
           : null}
       </MapView>
 
+      <ProfileAvatarButton
+        style={[styles.profileButton, { top: insets.top + spacing.sm }]}
+      />
+
       <View style={[styles.topOverlay, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
         <ScrollView
           horizontal
@@ -846,6 +851,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     gap: spacing.sm,
+  },
+  profileButton: {
+    position: "absolute",
+    right: spacing.md,
+    zIndex: 20,
   },
   topChipsRow: {
     flexDirection: "row",

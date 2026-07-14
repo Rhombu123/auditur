@@ -1,11 +1,9 @@
 import { useRouter } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -18,9 +16,7 @@ import { StatCard, StatRow } from "@/components/ui/stat-card";
 import { VehicleEditorModal } from "@/components/vehicle-editor-modal";
 import { VinSearchInput } from "@/components/vin-search-input";
 import { colors, spacing, typography } from "@/constants/theme";
-import { AUTH_ENABLED } from "@/lib/auth-config";
 import { getErrorMessage } from "@/lib/errors";
-import { useAuth } from "@/lib/auth-context";
 import {
   MOBILE_CACHE_KEYS,
   readMobileCache,
@@ -38,7 +34,6 @@ import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
 
 export default function VehiclesScreen() {
   const router = useRouter();
-  const { signOut } = useAuth();
   const [vehicles, setVehicles] = useState<ScannedVehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,26 +132,6 @@ export default function VehiclesScreen() {
         <Text style={styles.subtitle}>
           All scanned vehicles on the lot. Use Audit for today&apos;s completion status.
         </Text>
-        {AUTH_ENABLED ? (
-          <Pressable
-            style={styles.signOutBtn}
-            onPress={() => {
-              Alert.alert("Sign out", "Sign out of Auditur on this device?", [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Sign out",
-                  style: "destructive",
-                  onPress: () => {
-                    void signOut();
-                  },
-                },
-              ]);
-            }}
-            accessibilityLabel="Sign out"
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.textSecondary} />
-          </Pressable>
-        ) : null}
       </View>
 
       <StatRow>
@@ -246,16 +221,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 14,
     lineHeight: 20,
-  },
-  signOutBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
   },
   search: {
     marginHorizontal: spacing.lg,

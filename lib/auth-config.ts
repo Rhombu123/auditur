@@ -1,2 +1,2 @@
-/** Set EXPO_PUBLIC_AUTH_ENABLED=true in .env to require email sign-in again. */
-export const AUTH_ENABLED = process.env.EXPO_PUBLIC_AUTH_ENABLED === "true";
+/** Authentication is required by default; explicitly disable it only for isolated local demos. */
+export const AUTH_ENABLED = process.env.EXPO_PUBLIC_AUTH_ENABLED !== "false";

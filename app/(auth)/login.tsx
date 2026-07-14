@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,42 +15,41 @@ import {
 import { Button } from "@/components/ui/button";
 import { colors, radius, shadow, spacing } from "@/constants/theme";
 import { authStorageUsesMemory } from "@/lib/auth-storage";
-import { useAuth } from "@/lib/auth-context";
+import { type AccountType, useAuth } from "@/lib/auth-context";
 
-type Step = "email" | "code";
+type Mode = "login" | "signup";
 
 export default function LoginScreen() {
-  const { sendEmailCode, verifyEmailCode } = useAuth();
-  const [step, setStep] = useState<Step>("email");
+  const { signIn, signUp } = useAuth();
+  const [mode, setMode] = useState<Mode>("login");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSendCode() {
+  async function handleSubmit() {
     setError(null);
     setLoading(true);
     try {
-      await sendEmailCode(email);
-      setStep("code");
-    } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Could not send code.");
+      if (mode === "signup") {
+        if (!accountType) throw new Error("Choose owner / GM or employee.");
+        await signUp(email, password, { fullName, accountType });
+      } else {
+        await signIn(email, password);
+      }
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Authentication failed.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleVerify() {
-    setError(null);
-    setLoading(true);
-    try {
-      await verifyEmailCode(email, code);
-    } catch (verifyError) {
-      setError(verifyError instanceof Error ? verifyError.message : "Verification failed.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const canSubmit =
+    email.includes("@") &&
+    password.length >= 8 &&
+    (mode === "login" || (Boolean(fullName.trim()) && accountType !== null));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -59,17 +59,72 @@ export default function LoginScreen() {
       >
         <View style={styles.hero}>
           <View style={styles.logo}>
-            <Text style={styles.logoText}>A</Text>
+            <Image source={require("../../assets/icon.png")} style={styles.logoImage} />
           </View>
           <Text style={styles.title}>Auditur</Text>
           <Text style={styles.subtitle}>
-            Sign in with your email to scan, track, and manage lot inventory.
+            {mode === "signup"
+              ? "Create your dealership account with an email and password."
+              : "Sign in to scan, track, and manage lot inventory."}
           </Text>
         </View>
 
         <View style={styles.card}>
-          {step === "email" ? (
+          <View style={styles.modeTabs}>
+            {(["login", "signup"] as const).map((item) => (
+              <Pressable
+                key={item}
+                style={[styles.modeTab, mode === item && styles.modeTabActive]}
+                onPress={() => {
+                  setMode(item);
+                  setError(null);
+                }}
+              >
+                <Text style={[styles.modeTabText, mode === item && styles.modeTabTextActive]}>
+                  {item === "login" ? "Sign in" : "Create account"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {mode === "signup" ? (
             <>
+              <Text style={styles.label}>Full name</Text>
+              <TextInput
+                style={styles.input}
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Jordan Lee"
+                placeholderTextColor={colors.textMuted}
+                textContentType="name"
+                autoComplete="name"
+              />
+
+              <Text style={styles.label}>Account type</Text>
+              <View style={styles.roleRow}>
+                {([
+                  ["owner_gm", "Owner / GM"],
+                  ["employee", "Employee"],
+                ] as const).map(([value, label]) => (
+                  <Pressable
+                    key={value}
+                    style={[styles.roleCard, accountType === value && styles.roleCardActive]}
+                    onPress={() => setAccountType(value)}
+                  >
+                    <Text
+                      style={[
+                        styles.roleCardText,
+                        accountType === value && styles.roleCardTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+
               <Text style={styles.label}>Email</Text>
               <TextInput
                 style={styles.input}
@@ -83,57 +138,32 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <Button
-                label={loading ? "Sending…" : "Send code"}
-                onPress={() => void handleSendCode()}
-                loading={loading}
-                disabled={!email.includes("@")}
-              />
-            </>
-          ) : (
-            <>
-              <Text style={styles.label}>Verification code</Text>
-              <Text style={styles.hint}>
-                We emailed a 6-digit code to {email.trim().toLowerCase()} — not a sign-in link.
-              </Text>
+
+              <Text style={styles.label}>Password</Text>
               <TextInput
-                style={[styles.input, styles.codeInput]}
-                value={code}
-                onChangeText={setCode}
-                placeholder="000000"
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="At least 8 characters"
                 placeholderTextColor={colors.textMuted}
-                keyboardType="number-pad"
-                textContentType="oneTimeCode"
-                autoComplete="one-time-code"
-                maxLength={6}
+                secureTextEntry
+                textContentType={mode === "signup" ? "newPassword" : "password"}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
               />
               <Button
-                label={loading ? "Verifying…" : "Sign in"}
-                onPress={() => void handleVerify()}
+                label={
+                  loading
+                    ? mode === "signup"
+                      ? "Creating account…"
+                      : "Signing in…"
+                    : mode === "signup"
+                      ? "Create account"
+                      : "Sign in"
+                }
+                onPress={() => void handleSubmit()}
                 loading={loading}
-                disabled={code.replace(/\D/g, "").length < 6}
+                disabled={!canSubmit}
               />
-              <Pressable
-                style={styles.linkBtn}
-                onPress={() => {
-                  void handleSendCode();
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.linkText}>Resend code</Text>
-              </Pressable>
-              <Pressable
-                style={styles.linkBtn}
-                onPress={() => {
-                  setStep("email");
-                  setCode("");
-                  setError(null);
-                }}
-              >
-                <Text style={styles.linkText}>Use a different email</Text>
-              </Pressable>
-            </>
-          )}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
@@ -168,7 +198,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     ...shadow.card,
   },
-  logoText: { color: colors.onPrimary, fontSize: 34, fontWeight: "800" },
+  logoImage: { width: 56, height: 56, borderRadius: radius.lg },
   title: { fontSize: 28, fontWeight: "800", color: colors.text },
   subtitle: {
     marginTop: spacing.sm,
@@ -187,8 +217,38 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     ...shadow.card,
   },
+  modeTabs: {
+    flexDirection: "row",
+    padding: 4,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+  },
+  modeTab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  modeTabActive: { backgroundColor: colors.surface },
+  modeTabText: { color: colors.textSecondary, fontWeight: "600", fontSize: 13 },
+  modeTabTextActive: { color: colors.text, fontWeight: "700" },
   label: { fontSize: 14, fontWeight: "700", color: colors.text },
-  hint: { color: colors.textSecondary, fontSize: 13, marginTop: -spacing.xs },
+  roleRow: { flexDirection: "row", gap: spacing.sm },
+  roleCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+  },
+  roleCardActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  roleCardText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  roleCardTextActive: { color: colors.primary, fontWeight: "700" },
   input: {
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
@@ -199,15 +259,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: colors.text,
   },
-  codeInput: {
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: 8,
-    textAlign: "center",
-    fontVariant: ["tabular-nums"],
-  },
-  linkBtn: { alignItems: "center", paddingVertical: spacing.sm },
-  linkText: { color: colors.primary, fontWeight: "600", fontSize: 14 },
   error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
   devNote: {
     marginTop: spacing.lg,

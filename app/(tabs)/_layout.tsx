@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
+import { ProfileAvatarButton } from "@/components/profile-avatar-button";
 import { ScanTabButton } from "@/components/scan-tab-button";
 import { colors, spacing } from "@/constants/theme";
 
@@ -16,6 +17,7 @@ export default function TabLayout() {
         headerTintColor: colors.primary,
         headerTitleStyle: { fontWeight: "700", color: colors.text, fontSize: 17 },
         headerShadowVisible: false,
+        headerRight: () => <ProfileAvatarButton style={{ marginRight: spacing.lg }} />,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabInactive,
         tabBarStyle: {

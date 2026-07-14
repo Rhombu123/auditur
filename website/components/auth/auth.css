@@ -371,36 +371,6 @@
   color: #64748b;
 }
 
-.auth-otp-row {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-bottom: 0.25rem;
-}
-
-.auth-otp-cell {
-  width: 2.75rem;
-  height: 3.25rem;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  text-align: center;
-  font-family: var(--font-mono), monospace;
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: #0f172a;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.auth-otp-cell:focus {
-  outline: none;
-  border-color: #0d9488;
-  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.12);
-  background: #fff;
-}
-
 .auth-loading {
   min-height: 100vh;
   display: flex;
