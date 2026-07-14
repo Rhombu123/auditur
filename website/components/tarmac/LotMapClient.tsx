@@ -5,6 +5,8 @@ import type {
   GeoJSONSource,
   Map as MapLibreMap,
   MapMouseEvent,
+  Marker,
+  NavigationControl,
   StyleSpecification,
 } from "maplibre-gl";
 
@@ -18,8 +20,11 @@ import type { ScannedVehicleRow } from "@/lib/web-api-types";
 
 type Point = { latitude: number; longitude: number };
 
+export type DrawTool = "paint" | "erase";
+
 export type LotMapApi = {
   captureView: () => LockedLotView | null;
+  focusVin: (query: string) => boolean;
 };
 
 type Props = {
@@ -27,6 +32,7 @@ type Props = {
   vehicles: ScannedVehicleRow[];
   draft: Point[];
   drawing: boolean;
+  drawTool: DrawTool;
   brushColor: string;
   focusZoneId: string | null;
   lockedView: LockedLotView | null;
@@ -45,8 +51,7 @@ const SATELLITE_STYLE: StyleSpecification = {
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       ],
       tileSize: 256,
-      attribution:
-        "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      attribution: "",
       maxzoom: 19,
     },
     roads: {
@@ -55,7 +60,7 @@ const SATELLITE_STYLE: StyleSpecification = {
         "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
       ],
       tileSize: 256,
-      attribution: "Roads © Esri",
+      attribution: "",
       maxzoom: 19,
     },
   },
@@ -87,11 +92,16 @@ function distanceMeters(a: Point, b: Point) {
   return Math.hypot(dLat, dLng);
 }
 
+function normalizeVinQuery(query: string) {
+  return query.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 export default function LotMapClient({
   zones,
   vehicles,
   draft,
   drawing,
+  drawTool,
   brushColor,
   focusZoneId,
   lockedView,
@@ -101,21 +111,29 @@ export default function LotMapClient({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const navControlRef = useRef<NavigationControl | null>(null);
+  const userMarkerRef = useRef<Marker | null>(null);
+  const watchIdRef = useRef<number | null>(null);
   const drawingRef = useRef(drawing);
+  const drawToolRef = useRef(drawTool);
   const relocatingRef = useRef(relocating);
   const lockedViewRef = useRef(lockedView);
   const draftRef = useRef(draft);
+  const vehiclesRef = useRef(vehicles);
   const onDraftChangeRef = useRef(onDraftChange);
   const onApiReadyRef = useRef(onApiReady);
   const freehandActiveRef = useRef(false);
   const didFitFallbackRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   drawingRef.current = drawing;
+  drawToolRef.current = drawTool;
   relocatingRef.current = relocating;
   lockedViewRef.current = lockedView;
   draftRef.current = draft;
+  vehiclesRef.current = vehicles;
   onDraftChangeRef.current = onDraftChange;
   onApiReadyRef.current = onApiReady;
 
@@ -142,13 +160,16 @@ export default function LotMapClient({
           bearing: saved?.bearing ?? 0,
           pitch: saved?.pitch ?? 45,
           maxPitch: 70,
+          attributionControl: false,
           dragRotate: true,
           touchPitch: true,
         });
 
-        map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-        map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-        map.addControl(new maplibregl.ScaleControl({ maxWidth: 120 }), "bottom-left");
+        const nav = new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true });
+        navControlRef.current = nav;
+        if (relocatingRef.current || !lockedViewRef.current) {
+          map.addControl(nav, "top-right");
+        }
 
         map.on("load", () => {
           map.addSource("zones", {
@@ -161,16 +182,21 @@ export default function LotMapClient({
             source: "zones",
             paint: {
               "fill-color": ["get", "fillColor"],
-              "fill-opacity": 0.4,
+              "fill-opacity": 0.22,
             },
           });
           map.addLayer({
             id: "zones-line",
             type: "line",
             source: "zones",
+            layout: {
+              "line-cap": "round",
+              "line-join": "round",
+            },
             paint: {
               "line-color": ["get", "strokeColor"],
-              "line-width": 2.5,
+              "line-width": 10,
+              "line-opacity": 0.25,
             },
           });
 
@@ -195,15 +221,6 @@ export default function LotMapClient({
             data: { type: "FeatureCollection", features: [] },
           });
           map.addLayer({
-            id: "draft-fill",
-            type: "fill",
-            source: "draft",
-            paint: {
-              "fill-color": brushColor,
-              "fill-opacity": 0.28,
-            },
-          });
-          map.addLayer({
             id: "draft-line",
             type: "line",
             source: "draft",
@@ -213,9 +230,35 @@ export default function LotMapClient({
             },
             paint: {
               "line-color": brushColor,
-              "line-width": 14,
-              "line-opacity": 0.85,
-              "line-blur": 0.4,
+              "line-width": 16,
+              "line-opacity": 0.25,
+              "line-blur": 0.2,
+            },
+          });
+
+          map.addSource("user-location", {
+            type: "geojson",
+            data: { type: "FeatureCollection", features: [] },
+          });
+          map.addLayer({
+            id: "user-location-halo",
+            type: "circle",
+            source: "user-location",
+            paint: {
+              "circle-radius": 14,
+              "circle-color": "#38BDF8",
+              "circle-opacity": 0.25,
+            },
+          });
+          map.addLayer({
+            id: "user-location-dot",
+            type: "circle",
+            source: "user-location",
+            paint: {
+              "circle-radius": 6,
+              "circle-color": "#0EA5E9",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#F8FAFC",
             },
           });
 
@@ -240,21 +283,52 @@ export default function LotMapClient({
                 east: bounds.getEast(),
               };
             },
+            focusVin: (query: string) => {
+              const needle = normalizeVinQuery(query);
+              if (needle.length < 6) return false;
+              const match = vehiclesRef.current.find((vehicle) => {
+                const vin = normalizeVinQuery(vehicle.vinSuffix);
+                return (
+                  vin === needle ||
+                  vin.endsWith(needle) ||
+                  (needle.length >= 6 && vin.slice(-6) === needle.slice(-6)) ||
+                  (needle.length >= 8 && vin.slice(-8) === needle.slice(-8))
+                );
+              });
+              if (!match || !mapRef.current) return false;
+              if (relocatingRef.current || !lockedViewRef.current) {
+                mapRef.current.flyTo({
+                  center: [match.longitude, match.latitude],
+                  zoom: Math.max(mapRef.current.getZoom(), 18),
+                  duration: 700,
+                });
+              }
+              return true;
+            },
           });
 
           map.resize();
         });
 
-        const appendFreehandPoint = (event: MapMouseEvent) => {
+        const handleStroke = (event: MapMouseEvent) => {
           if (!drawingRef.current || !freehandActiveRef.current) return;
-          const next: Point = {
+          const point: Point = {
             latitude: event.lngLat.lat,
             longitude: event.lngLat.lng,
           };
+
+          if (drawToolRef.current === "erase") {
+            const remaining = draftRef.current.filter((existing) => distanceMeters(existing, point) > 10);
+            if (remaining.length !== draftRef.current.length) {
+              onDraftChangeRef.current(remaining);
+            }
+            return;
+          }
+
           const prev = draftRef.current;
           const last = prev[prev.length - 1];
-          if (last && distanceMeters(last, next) < 4) return;
-          onDraftChangeRef.current([...prev, next]);
+          if (last && distanceMeters(last, point) < 3) return;
+          onDraftChangeRef.current([...prev, point]);
         };
 
         const onDown = (event: MapMouseEvent) => {
@@ -267,33 +341,33 @@ export default function LotMapClient({
             latitude: event.lngLat.lat,
             longitude: event.lngLat.lng,
           };
-          onDraftChangeRef.current([...draftRef.current, start]);
+          if (drawToolRef.current === "erase") {
+            const remaining = draftRef.current.filter((existing) => distanceMeters(existing, start) > 10);
+            onDraftChangeRef.current(remaining);
+          } else {
+            onDraftChangeRef.current([...draftRef.current, start]);
+          }
         };
 
         const onUp = () => {
           if (!freehandActiveRef.current) return;
           freehandActiveRef.current = false;
-          if (!drawingRef.current) {
-            applyInteractionMode(map);
-          } else {
-            map.dragPan.disable();
-            map.dragRotate.disable();
-          }
+          applyInteractionMode(map);
         };
 
         map.on("mousedown", onDown);
-        map.on("mousemove", appendFreehandPoint);
+        map.on("mousemove", handleStroke);
         map.on("mouseup", onUp);
         map.on("touchstart", onDown);
-        map.on("touchmove", appendFreehandPoint);
+        map.on("touchmove", handleStroke);
         map.on("touchend", onUp);
 
         cleanupFns = [
           () => map.off("mousedown", onDown),
-          () => map.off("mousemove", appendFreehandPoint),
+          () => map.off("mousemove", handleStroke),
           () => map.off("mouseup", onUp),
           () => map.off("touchstart", onDown),
-          () => map.off("touchmove", appendFreehandPoint),
+          () => map.off("touchmove", handleStroke),
           () => map.off("touchend", onUp),
         ];
       } catch (loadError) {
@@ -306,9 +380,14 @@ export default function LotMapClient({
     return () => {
       cancelled = true;
       cleanupFns.forEach((fn) => fn());
+      if (watchIdRef.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      userMarkerRef.current?.remove();
       setMapReady(false);
       mapRef.current?.remove();
       mapRef.current = null;
+      navControlRef.current = null;
     };
   }, []);
 
@@ -317,6 +396,7 @@ export default function LotMapClient({
       map.dragPan.disable();
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
+      map.touchPitch.disable();
       return;
     }
 
@@ -333,15 +413,14 @@ export default function LotMapClient({
         bearing: locked.bearing,
         pitch: locked.pitch,
       });
-      // Locked home: rotate/tilt only — no pan, no zoom.
       map.dragPan.disable();
       map.scrollZoom.disable();
       map.boxZoom.disable();
       map.doubleClickZoom.disable();
       map.touchZoomRotate.disable();
       map.keyboard.disable();
-      map.dragRotate.enable();
-      map.touchPitch.enable();
+      map.dragRotate.disable();
+      map.touchPitch.disable();
       return;
     }
 
@@ -361,8 +440,62 @@ export default function LotMapClient({
     const map = mapRef.current;
     if (!map || !mapReady) return;
     applyInteractionMode(map);
+
+    const nav = navControlRef.current;
+    const locked = Boolean(lockedView && !relocating);
+    if (nav) {
+      const hasNav = map.hasControl(nav);
+      if (locked && hasNav) map.removeControl(nav);
+      if (!locked && !hasNav) map.addControl(nav, "top-right");
+    }
+
     map.resize();
   }, [mapReady, lockedView, relocating, drawing]);
+
+  useEffect(() => {
+    if (!mapReady || typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocationError("Location is not available in this browser.");
+      return;
+    }
+
+    const map = mapRef.current;
+    if (!map) return;
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        setLocationError(null);
+        const source = map.getSource("user-location") as GeoJSONSource | undefined;
+        source?.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Point",
+                coordinates: [position.coords.longitude, position.coords.latitude],
+              },
+            },
+          ],
+        });
+      },
+      (geoError) => {
+        setLocationError(
+          geoError.code === geoError.PERMISSION_DENIED
+            ? "Allow location access to show your position on the lot."
+            : "Could not read your current location.",
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 12_000 },
+    );
+
+    return () => {
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -405,7 +538,7 @@ export default function LotMapClient({
         type: "Feature" as const,
         properties: {
           matched: vehicle.matched,
-          label: `${vehicle.model} · …${vehicle.vinSuffix}`,
+          vinSuffix: vehicle.vinSuffix,
         },
         geometry: {
           type: "Point" as const,
@@ -438,16 +571,16 @@ export default function LotMapClient({
       return;
     }
 
-    const ring = points.map((p) => [p.longitude, p.latitude] as [number, number]);
-
-    // Brush / highlighter stroke — thick line while painting.
     draftSource.setData({
       type: "FeatureCollection",
       features: [
         {
           type: "Feature",
           properties: {},
-          geometry: { type: "LineString", coordinates: ring },
+          geometry: {
+            type: "LineString",
+            coordinates: points.map((p) => [p.longitude, p.latitude] as [number, number]),
+          },
         },
       ],
     });
@@ -458,9 +591,7 @@ export default function LotMapClient({
     if (!map || !mapReady) return;
     if (map.getLayer("draft-line")) {
       map.setPaintProperty("draft-line", "line-color", brushColor);
-    }
-    if (map.getLayer("draft-fill")) {
-      map.setPaintProperty("draft-fill", "fill-color", brushColor);
+      map.setPaintProperty("draft-line", "line-opacity", 0.25);
     }
   }, [mapReady, brushColor]);
 
@@ -483,7 +614,6 @@ export default function LotMapClient({
       maxLng = Math.max(maxLng, point.longitude);
     }
 
-    // When camera is locked we highlight in place; otherwise zoom to the section.
     if (relocating || !lockedView) {
       map.fitBounds(
         [
@@ -495,19 +625,11 @@ export default function LotMapClient({
     }
 
     if (map.getLayer("zones-line")) {
-      map.setPaintProperty("zones-line", "line-width", [
+      map.setPaintProperty("zones-line", "line-opacity", [
         "case",
         ["==", ["get", "name"], zone.name],
-        5,
-        2.5,
-      ]);
-    }
-    if (map.getLayer("zones-fill")) {
-      map.setPaintProperty("zones-fill", "fill-opacity", [
-        "case",
-        ["==", ["get", "name"], zone.name],
-        0.62,
-        0.35,
+        0.45,
+        0.25,
       ]);
     }
   }, [mapReady, focusZoneId, zones, relocating, lockedView]);
@@ -527,22 +649,24 @@ export default function LotMapClient({
         style={{ height: "100%", width: "100%", minHeight: 360, background: "#0b1220" }}
         role="presentation"
       />
-      <p
-        style={{
-          position: "absolute",
-          left: 10,
-          bottom: 10,
-          margin: 0,
-          padding: "0.35rem 0.55rem",
-          borderRadius: 6,
-          background: "rgba(11,15,20,0.72)",
-          color: "#cbd5e1",
-          fontSize: 11,
-          pointerEvents: "none",
-        }}
-      >
-        Drag with right-click / Ctrl+drag to rotate · two-finger tilt on trackpad
-      </p>
+      {locationError ? (
+        <p
+          style={{
+            position: "absolute",
+            left: 10,
+            bottom: 10,
+            margin: 0,
+            padding: "0.35rem 0.55rem",
+            borderRadius: 6,
+            background: "rgba(11,15,20,0.78)",
+            color: "#fda4af",
+            fontSize: 11,
+            maxWidth: "70%",
+          }}
+        >
+          {locationError}
+        </p>
+      ) : null}
     </div>
   );
 }

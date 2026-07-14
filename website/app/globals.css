@@ -37,6 +37,9 @@ button {
   font: inherit;
 }
 
-.maplibregl-ctrl-attrib a {
-  color: #0f172a;
+/* Hide MapLibre / tile attribution chrome on the lot map. */
+.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-attrib-button,
+.maplibregl-ctrl-attrib-inner {
+  display: none !important;
 }

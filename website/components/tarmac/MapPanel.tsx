@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { LotMapApi } from "@/components/tarmac/LotMapClient";
+import type { DrawTool, LotMapApi } from "@/components/tarmac/LotMapClient";
 import { brushStrokeToPolygon } from "@/lib/brush-polygon";
 import {
   type LockedLotView,
@@ -43,14 +43,17 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
   const [zones, setZones] = useState<LotZone[]>([]);
   const [vehicles, setVehicles] = useState<ScannedVehicleRow[]>([]);
   const [drawing, setDrawing] = useState(false);
+  const [drawTool, setDrawTool] = useState<DrawTool>("paint");
   const [draft, setDraft] = useState<Point[]>([]);
   const [zoneName, setZoneName] = useState("");
   const [colorIndex, setColorIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vinQuery, setVinQuery] = useState("");
   const [lockedView, setLockedView] = useState<LockedLotView | null>(null);
   const [relocating, setRelocating] = useState(true);
   const mapApiRef = useRef<LotMapApi | null>(null);
+  const locked = Boolean(lockedView && !relocating);
 
   useEffect(() => {
     const saved = loadLockedLotView();
@@ -88,6 +91,8 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     saveLockedLotView(view);
     setLockedView(view);
     setRelocating(false);
+    setDrawing(false);
+    setDraft([]);
     setError(null);
   }
 
@@ -110,6 +115,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
       });
       setDraft([]);
       setDrawing(false);
+      setDrawTool("paint");
       setZoneName("");
       await afterMutation();
     } catch (saveError) {
@@ -150,53 +156,85 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
     }
   }
 
+  function handleSearchVin() {
+    const found = mapApiRef.current?.focusVin(vinQuery);
+    if (!found) {
+      setError("No vehicle matched that VIN (try last 6, last 8, or full VIN).");
+      return;
+    }
+    setError(null);
+  }
+
   return (
     <div className="panel">
-      <div className="hero">
-        <div>
-          <h2>Lot map</h2>
-          <p>
-            Paint lot sections like a highlighter — the stroke uses the color you pick. Lock a home
-            camera to freeze pan and zoom; rotate and tilt still work.
-          </p>
-        </div>
-        <div className="hero-actions">
-          {!drawing ? (
-            <button type="button" className="primary" onClick={() => setDrawing(true)}>
-              Paint section
-            </button>
-          ) : (
-            <>
+      {!locked ? (
+        <div className="hero">
+          <div>
+            <h2>Lot map</h2>
+            <p>
+              Highlight sections at 25% opacity, erase mistakes, then save. Search by VIN to jump to a
+              pin. Lock the camera when the lot is framed.
+            </p>
+          </div>
+          <div className="hero-actions">
+            {!drawing ? (
               <button
                 type="button"
-                disabled={busy || draft.length < 2}
                 className="primary"
-                onClick={() => void handleSaveZone()}
-              >
-                Save paint ({draft.length} pts)
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                disabled={busy}
                 onClick={() => {
-                  setDraft([]);
-                  setDrawing(false);
+                  setDrawing(true);
+                  setDrawTool("paint");
                 }}
               >
-                Cancel
+                Paint section
               </button>
-            </>
-          )}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busy || draft.length < 2}
+                  className="primary"
+                  onClick={() => void handleSaveZone()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setDraft([]);
+                    setDrawing(false);
+                    setDrawTool("paint");
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
         </div>
+      ) : null}
+
+      <div className="search-bar">
+        <input
+          value={vinQuery}
+          onChange={(e) => setVinQuery(e.target.value)}
+          placeholder="Search VIN (last 6, last 8, or full)"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSearchVin();
+          }}
+        />
+        <button type="button" className="primary" onClick={handleSearchVin}>
+          Find
+        </button>
       </div>
 
       <div className={relocating ? "lock-bar active" : "lock-bar"}>
         {relocating ? (
           <>
             <span className="hint">
-              Pan to your lot, zoom in, and rotate the view the way you like. Then lock — roaming is
-              disabled until you change placement.
+              Frame your lot, then lock. Pan and zoom stay free until then.
             </span>
             <button type="button" className="primary" onClick={handleLockArea}>
               Lock this area
@@ -204,10 +242,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           </>
         ) : (
           <>
-            <span className="hint">
-              Lot camera locked. Rotate and tilt only — pan and zoom are off until you change
-              placement.
-            </span>
+            <span className="hint">Lot camera locked — pan, zoom, and rotate are off.</span>
             <button type="button" className="ghost" onClick={handleChangePlacement}>
               Change placement
             </button>
@@ -234,10 +269,23 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
               />
             ))}
           </div>
+          <button
+            type="button"
+            className={drawTool === "paint" ? "tool active" : "tool"}
+            onClick={() => setDrawTool("paint")}
+          >
+            Highlighter
+          </button>
+          <button
+            type="button"
+            className={drawTool === "erase" ? "tool active" : "tool"}
+            onClick={() => setDrawTool("erase")}
+          >
+            Eraser
+          </button>
           <button type="button" className="ghost" onClick={() => setDraft([])}>
             Clear stroke
           </button>
-          <span className="hint">Click and drag to paint with the selected highlighter color.</span>
         </div>
       ) : null}
 
@@ -250,6 +298,7 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
           vehicles={vehicles}
           draft={draft}
           drawing={drawing}
+          drawTool={drawTool}
           brushColor={ZONE_COLOR_OPTIONS[colorIndex % ZONE_COLOR_OPTIONS.length].stroke}
           focusZoneId={focusZoneId}
           lockedView={lockedView}
@@ -320,30 +369,32 @@ export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) 
         .hero p { margin:0.4rem 0 0; color:${tarmac.slate}; font-size:0.86rem; max-width:40rem; line-height:1.45; }
         .hero-actions, .zone-actions { display:flex; gap:0.55rem; align-items:center; flex-wrap:wrap; }
         .primary {
-          border:none; border-radius:8px; padding:0.7rem 1rem;
+          border:none; border-radius:999px; padding:0.7rem 1rem;
           background:${tarmac.teal}; color:#042f2e; font-weight:800; cursor:pointer;
         }
         .primary:disabled { opacity:0.5; cursor:not-allowed; }
-        .ghost, .danger {
+        .ghost, .danger, .tool {
           border:1px solid ${tarmac.line}; background:transparent; color:${tarmac.text};
-          border-radius:8px; padding:0.6rem 0.85rem; font-weight:700; cursor:pointer;
+          border-radius:999px; padding:0.6rem 0.85rem; font-weight:700; cursor:pointer;
+        }
+        .tool.active {
+          border-color: ${tarmac.teal};
+          color: ${tarmac.teal};
+          background: rgba(13,148,136,0.12);
         }
         .danger { color:${tarmac.danger}; border-color:rgba(248,113,113,0.45); }
-        .lock-bar, .draw-bar {
+        .search-bar, .lock-bar, .draw-bar {
           display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;
           margin-bottom:1rem; padding:0.85rem 1rem; border-radius:10px;
           border:1px solid ${tarmac.line}; background:${tarmac.asphaltCard};
         }
-        .lock-bar.active {
-          border-style: dashed; border-color: ${tarmac.teal};
-          background:rgba(13,148,136,0.08);
-        }
-        .draw-bar {
-          border-style: dashed; background:rgba(13,148,136,0.08);
-        }
-        .draw-bar input {
+        .search-bar input, .draw-bar input {
           flex:1; min-width:200px; padding:0.6rem 0.75rem; border-radius:8px;
           border:1px solid ${tarmac.line}; background:#0b1220; color:${tarmac.text};
+        }
+        .lock-bar.active, .draw-bar {
+          border-style: dashed; border-color: ${tarmac.teal};
+          background:rgba(13,148,136,0.08);
         }
         .swatches { display:flex; gap:0.35rem; flex-wrap:wrap; }
         .swatches.compact { gap:0.25rem; }
