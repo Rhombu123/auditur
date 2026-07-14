@@ -16,15 +16,27 @@ type ListKey = "missing" | "notOnList" | "scanned";
 export function AuditPanel({ data, onRefresh }: Props) {
   const audit = data.audit;
   const [list, setList] = useState<ListKey>("missing");
+  const [query, setQuery] = useState("");
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const rows = useMemo(() => {
+  const sourceRows = useMemo(() => {
     if (!audit) return [];
     if (list === "missing") return audit.missingToday;
     if (list === "notOnList") return audit.scannedNotOnList;
     return audit.scannedToday;
   }, [audit, list]);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sourceRows;
+    return sourceRows.filter(
+      (row) =>
+        row.vinSuffix.toLowerCase().includes(q) ||
+        row.model.toLowerCase().includes(q) ||
+        row.color.toLowerCase().includes(q),
+    );
+  }, [sourceRows, query]);
 
   async function handleExport() {
     setMessage(null);
@@ -48,6 +60,12 @@ export function AuditPanel({ data, onRefresh }: Props) {
     );
   }
 
+  const tabs = [
+    ["missing", "Missing", audit.notScannedTodayCount],
+    ["notOnList", "Not on list", audit.scannedNotOnListCount],
+    ["scanned", "Scanned", audit.scannedTodayCount],
+  ] as const;
+
   return (
     <div className="panel">
       <div className="desk-panel-hero">
@@ -59,43 +77,57 @@ export function AuditPanel({ data, onRefresh }: Props) {
             {audit.inventoryFileName ? ` · ${audit.inventoryFileName}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          className="ui-btn ui-btn-primary"
-          disabled={exporting}
-          onClick={() => void handleExport()}
-        >
-          {exporting ? "Exporting…" : "Export highlighted PDF"}
-        </button>
+        <div className="hero-actions">
+          <button
+            type="button"
+            className="ui-btn ui-btn-secondary"
+            onClick={() => void onRefresh()}
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="ui-btn ui-btn-primary"
+            disabled={exporting}
+            onClick={() => void handleExport()}
+          >
+            {exporting ? "Exporting…" : "Export PDF"}
+          </button>
+        </div>
       </div>
 
-      <div className="chips">
-        {(
-          [
-            ["missing", `Missing (${audit.notScannedTodayCount})`],
-            ["notOnList", `Not on list (${audit.scannedNotOnListCount})`],
-            ["scanned", `Scanned (${audit.scannedTodayCount})`],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={list === key ? "ui-btn ui-btn-tool active" : "ui-btn ui-btn-tool"}
-            onClick={() => setList(key)}
-          >
-            {label}
-          </button>
-        ))}
-        <button type="button" className="ui-btn ui-btn-secondary" onClick={() => void onRefresh()}>
-          Refresh
-        </button>
+      <div className="filters">
+        <div className="seg" role="tablist" aria-label="Audit lists">
+          {tabs.map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={list === key}
+              className={list === key ? "seg-tab active" : "seg-tab"}
+              onClick={() => setList(key)}
+            >
+              {label}
+              <span className="count">{count}</span>
+            </button>
+          ))}
+        </div>
+        <input
+          className="desk-input search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search VIN, model, color…"
+          aria-label="Search audit list"
+        />
       </div>
 
       {message ? <p className="msg">{message}</p> : null}
 
       <div className="table">
         {rows.length === 0 ? (
-          <p className="empty">Nothing in this list.</p>
+          <p className="empty">
+            {query.trim() ? "No vehicles match that search." : "Nothing in this list."}
+          </p>
         ) : (
           rows.map((row) => (
             <div key={`${list}-${row.vinSuffix}`} className="row">
@@ -131,7 +163,72 @@ const styles = `
     letter-spacing: -0.04em;
     color: ${tarmac.text};
   }
-  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.85rem; }
+  .hero-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 0.9rem;
+  }
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.2rem;
+    border-radius: 8px;
+    background: ${tarmac.surfaceMuted};
+    border: 1px solid ${tarmac.lineDim};
+  }
+  .seg-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 28px;
+    padding: 0 0.65rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: ${tarmac.slate};
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .seg-tab:hover {
+    color: ${tarmac.text};
+  }
+  .seg-tab.active {
+    background: ${tarmac.surface};
+    color: ${tarmac.text};
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+  .count {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: ${tarmac.slateDim};
+    background: ${tarmac.lineDim};
+    border-radius: 999px;
+    padding: 0.1rem 0.35rem;
+    min-width: 1.15rem;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .seg-tab.active .count {
+    background: ${tarmac.tealSoft};
+    color: ${tarmac.tealDeep};
+  }
+  .search {
+    flex: 1;
+    min-width: 200px;
+    max-width: 320px;
+  }
   .table { display: grid; gap: 0.45rem; }
   .row {
     display: flex;
