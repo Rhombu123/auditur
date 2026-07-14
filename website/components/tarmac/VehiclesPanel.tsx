@@ -236,6 +236,9 @@ function VehicleEditor({
         .head strong { color: ${tarmac.text}; }
         .head span { color: ${tarmac.slate}; font-size: 0.78rem; }
         .fields { display: grid; gap: 0.55rem; grid-template-columns: 1fr 1fr; }
+        @media (max-width: 640px) {
+          .fields { grid-template-columns: 1fr; }
+        }
         label {
           display: grid;
           gap: 0.25rem;
@@ -245,7 +248,7 @@ function VehicleEditor({
           letter-spacing: 0.06em;
           font-weight: 600;
         }
-        .actions { display: flex; gap: 0.5rem; }
+        .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       `}</style>
     </div>
   );
