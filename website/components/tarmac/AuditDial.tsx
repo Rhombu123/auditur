@@ -15,7 +15,8 @@ type Props = {
 export function AuditDial({ percent, expected, scanned, missing, fileName }: Props) {
   const radius = 88;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percent / 100) * circumference;
+  const clamped = Math.max(0, Math.min(100, percent));
+  const offset = circumference - (clamped / 100) * circumference;
 
   return (
     <motion.div
@@ -26,7 +27,7 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
     >
       <span className="bay-label">Today&apos;s audit</span>
       <div className="dial-wrap">
-        <svg viewBox="0 0 200 200" className="dial-svg">
+        <svg viewBox="0 0 200 200" className="dial-svg" aria-hidden>
           <circle cx="100" cy="100" r={radius} className="track" />
           <motion.circle
             cx="100"
@@ -46,7 +47,7 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
           >
-            {percent}%
+            {clamped}%
           </motion.span>
           <span className="pct-label">complete</span>
         </div>
@@ -62,16 +63,23 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
         </div>
         <div className={missing > 0 ? "warn" : ""}>
           <strong>{missing}</strong>
-          <span>Missing</span>
+          <span>Remaining</span>
         </div>
       </div>
-      {fileName ? <p className="file">{fileName}</p> : null}
+      {fileName ? (
+        <p className="file">
+          <span className="file-label">Price list</span>
+          {fileName}
+        </p>
+      ) : (
+        <p className="file muted">No price list selected</p>
+      )}
 
       <style jsx>{`
         .dial-bay {
           background: ${tarmac.asphaltCard};
           border: 1px solid ${tarmac.line};
-          border-radius: 8px;
+          border-radius: 10px;
           padding: 1.25rem;
           position: relative;
           overflow: hidden;
@@ -106,18 +114,18 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
           transform: rotate(-90deg);
         }
 
-        .track {
+        .dial-svg :global(.track) {
           fill: none;
-          stroke: ${tarmac.lineDim};
-          stroke-width: 10;
+          stroke: rgba(148, 163, 184, 0.22);
+          stroke-width: 12;
         }
 
-        .progress {
+        .dial-svg :global(.progress) {
           fill: none;
           stroke: ${tarmac.teal};
-          stroke-width: 10;
+          stroke-width: 12;
           stroke-linecap: round;
-          filter: drop-shadow(0 0 8px ${tarmac.tealGlow});
+          filter: drop-shadow(0 0 10px ${tarmac.tealGlow});
         }
 
         .dial-center {
@@ -142,7 +150,7 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
           font-weight: 700;
           letter-spacing: 0.1em;
           text-transform: uppercase;
-          color: ${tarmac.slate};
+          color: #cbd5e1;
           margin-top: 0.25rem;
         }
 
@@ -162,23 +170,36 @@ export function AuditDial({ percent, expected, scanned, missing, fileName }: Pro
 
         .dial-stats span {
           font-size: 0.68rem;
-          color: ${tarmac.slate};
+          color: #cbd5e1;
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
 
-        .dial-stats .warn strong {
+        .dial-stats :global(.warn) strong {
           color: ${tarmac.amber};
         }
 
         .file {
-          margin: 0.85rem 0 0;
-          font-size: 0.75rem;
-          color: ${tarmac.slateDim};
+          margin: 0.95rem 0 0;
+          font-size: 0.8rem;
+          color: ${tarmac.text};
           text-align: center;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          line-height: 1.35;
+          word-break: break-word;
+        }
+
+        .file-label {
+          display: block;
+          margin-bottom: 0.2rem;
+          font-size: 0.65rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: ${tarmac.teal};
+          font-weight: 800;
+        }
+
+        .file.muted {
+          color: ${tarmac.slate};
         }
       `}</style>
     </motion.div>

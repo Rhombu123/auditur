@@ -2,12 +2,12 @@
 
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuditDial } from "@/components/tarmac/AuditDial";
 import { AuditPanel } from "@/components/tarmac/AuditPanel";
 import { MapPanel } from "@/components/tarmac/MapPanel";
-import { MissingMarquee } from "@/components/tarmac/MissingMarquee";
+import { MembersPanel } from "@/components/tarmac/MembersPanel";
 import { ScanFeed } from "@/components/tarmac/ScanFeed";
 import { UploadPanel } from "@/components/tarmac/UploadPanel";
 import { UploadStrip } from "@/components/tarmac/UploadStrip";
@@ -15,13 +15,17 @@ import { VehiclesPanel } from "@/components/tarmac/VehiclesPanel";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
 import { displayName, useAuth } from "@/lib/auth-context";
 import { isDemoLotEnabled, resetDemoLot } from "@/lib/demo-store";
+import {
+  loadSelectedUploadId,
+  saveSelectedUploadId,
+} from "@/lib/selected-upload";
 import { tarmac } from "@/lib/tarmac-theme";
 import type { DashboardData } from "@/lib/types";
 import { useDashboardRealtime } from "@/lib/use-dashboard-realtime";
 import { fetchDashboardData } from "@/lib/web-api";
 import { supabaseConfigured } from "@/lib/supabase-browser";
 
-type TabId = "overview" | "audit" | "upload" | "vehicles" | "map";
+type TabId = "overview" | "audit" | "upload" | "vehicles" | "map" | "members";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -29,6 +33,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "upload", label: "Uploads" },
   { id: "vehicles", label: "Vehicles" },
   { id: "map", label: "Map" },
+  { id: "members", label: "Members" },
 ];
 
 export function TarmacDashboard() {
@@ -40,16 +45,27 @@ export function TarmacDashboard() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
+  const [focusZoneId, setFocusZoneId] = useState<string | null>(null);
+  const selectedUploadIdRef = useRef<string | null>(null);
 
-  const load = useCallback(async (options?: { silent?: boolean }) => {
+  useEffect(() => {
+    const saved = loadSelectedUploadId();
+    setSelectedUploadId(saved);
+    selectedUploadIdRef.current = saved;
+  }, []);
+
+  const load = useCallback(async (options?: { silent?: boolean; uploadId?: string | null }) => {
     const silent = options?.silent ?? false;
+    const uploadId =
+      options?.uploadId !== undefined ? options.uploadId : selectedUploadIdRef.current;
     if (!silent) {
       setLoading(true);
     } else {
       setSyncing(true);
     }
     setError(null);
-    if (!supabaseConfigured()) {
+    if (!supabaseConfigured() && !isDemoLotEnabled()) {
       setError(
         "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY on Vercel.",
       );
@@ -58,8 +74,16 @@ export function TarmacDashboard() {
       return;
     }
     try {
-      setData(await fetchDashboardData());
+      const next = await fetchDashboardData(uploadId);
+      setData(next);
       setDemoMode(isDemoLotEnabled());
+      const active =
+        next.uploadLog.find((u) => u.isCurrent)?.id ?? next.uploadLog[0]?.id ?? null;
+      if (active && !selectedUploadIdRef.current) {
+        selectedUploadIdRef.current = active;
+        setSelectedUploadId(active);
+        saveSelectedUploadId(active);
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load dashboard.");
     } finally {
@@ -73,7 +97,7 @@ export function TarmacDashboard() {
   }, [load]);
 
   useDashboardRealtime({
-    enabled: supabaseConfigured(),
+    enabled: supabaseConfigured() && !isDemoLotEnabled(),
     onChange: () => void load({ silent: true }),
   });
 
@@ -85,6 +109,18 @@ export function TarmacDashboard() {
   const refresh = useCallback(async () => {
     await load({ silent: true });
   }, [load]);
+
+  async function handleSelectUpload(uploadId: string) {
+    selectedUploadIdRef.current = uploadId;
+    setSelectedUploadId(uploadId);
+    saveSelectedUploadId(uploadId);
+    await load({ silent: true, uploadId });
+  }
+
+  function handleSelectZone(zoneId: string) {
+    setFocusZoneId(zoneId);
+    setTab("map");
+  }
 
   const audit = data?.audit;
   const today = new Date().toLocaleDateString([], {
@@ -115,10 +151,7 @@ export function TarmacDashboard() {
             whileHover={{ scale: 1.03, y: -1 }}
             whileTap={{ scale: 0.97 }}
           >
-            <span className="signout-label">Sign out</span>
-            <span className="signout-icon" aria-hidden>
-              →
-            </span>
+            Sign out
           </motion.button>
         </div>
       </header>
@@ -136,7 +169,7 @@ export function TarmacDashboard() {
             className="demo-reset"
             onClick={() => {
               resetDemoLot();
-              void load();
+              void load({ uploadId: null });
             }}
           >
             Reset demo
@@ -189,11 +222,17 @@ export function TarmacDashboard() {
                   fileName={audit?.inventoryFileName ?? null}
                 />
                 <ScanFeed scans={data?.recentScans ?? []} />
-                <ZoneBays zones={data?.zoneStats ?? []} />
+                <ZoneBays
+                  zones={data?.zoneStats ?? []}
+                  onSelectZone={handleSelectZone}
+                />
               </div>
 
-              <MissingMarquee vehicles={audit?.missingToday ?? []} />
-              <UploadStrip uploads={data?.uploadLog ?? []} />
+              <UploadStrip
+                uploads={data?.uploadLog ?? []}
+                selectedUploadId={selectedUploadId}
+                onSelect={(id) => void handleSelectUpload(id)}
+              />
             </>
           ) : null}
 
@@ -202,12 +241,25 @@ export function TarmacDashboard() {
           ) : null}
 
           {tab === "upload" ? (
-            <UploadPanel uploads={data?.uploadLog ?? []} onChanged={refresh} />
+            <UploadPanel
+              uploads={data?.uploadLog ?? []}
+              onChanged={refresh}
+              selectedUploadId={selectedUploadId}
+              onSelectUpload={(id) => void handleSelectUpload(id)}
+            />
           ) : null}
 
           {tab === "vehicles" ? <VehiclesPanel onChanged={refresh} /> : null}
 
-          {tab === "map" ? <MapPanel onChanged={refresh} /> : null}
+          {tab === "map" ? (
+            <MapPanel
+              onChanged={refresh}
+              focusZoneId={focusZoneId}
+              onFocusZone={setFocusZoneId}
+            />
+          ) : null}
+
+          {tab === "members" ? <MembersPanel /> : null}
         </>
       )}
 
@@ -309,37 +361,20 @@ export function TarmacDashboard() {
         .signout {
           display: inline-flex;
           align-items: center;
-          gap: 0.55rem;
-          padding: 0.7rem 1.05rem;
+          justify-content: center;
+          padding: 0.72rem 1.2rem;
           border-radius: 999px;
-          border: 1px solid rgba(248, 113, 113, 0.35);
+          border: 1px solid ${tarmac.line};
           background:
-            linear-gradient(180deg, rgba(248, 113, 113, 0.16), rgba(248, 113, 113, 0.06)),
+            linear-gradient(180deg, rgba(13, 148, 136, 0.22), rgba(13, 148, 136, 0.08)),
             ${tarmac.asphaltCard};
-          color: #fecaca;
-          font-weight: 750;
-          font-size: 0.82rem;
-          letter-spacing: 0.02em;
-          cursor: pointer;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-        }
-
-        .signout-label {
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-size: 0.72rem;
+          color: ${tarmac.teal};
           font-weight: 800;
-        }
-
-        .signout-icon {
-          display: grid;
-          place-items: center;
-          width: 1.35rem;
-          height: 1.35rem;
-          border-radius: 999px;
-          background: rgba(248, 113, 113, 0.2);
-          color: #fda4af;
-          font-size: 0.7rem;
+          font-size: 0.72rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          cursor: pointer;
+          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
         }
 
         .demo-banner {

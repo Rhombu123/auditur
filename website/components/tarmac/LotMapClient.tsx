@@ -27,6 +27,8 @@ type Props = {
   vehicles: ScannedVehicleRow[];
   draft: Point[];
   drawing: boolean;
+  brushColor: string;
+  focusZoneId: string | null;
   lockedView: LockedLotView | null;
   relocating: boolean;
   onDraftChange: (points: Point[]) => void;
@@ -90,6 +92,8 @@ export default function LotMapClient({
   vehicles,
   draft,
   drawing,
+  brushColor,
+  focusZoneId,
   lockedView,
   relocating,
   onDraftChange,
@@ -195,18 +199,23 @@ export default function LotMapClient({
             type: "fill",
             source: "draft",
             paint: {
-              "fill-color": "#0D9488",
-              "fill-opacity": 0.25,
+              "fill-color": brushColor,
+              "fill-opacity": 0.28,
             },
           });
           map.addLayer({
             id: "draft-line",
             type: "line",
             source: "draft",
+            layout: {
+              "line-cap": "round",
+              "line-join": "round",
+            },
             paint: {
-              "line-color": "#5EEAD4",
-              "line-width": 3,
-              "line-dasharray": [2, 1],
+              "line-color": brushColor,
+              "line-width": 14,
+              "line-opacity": 0.85,
+              "line-blur": 0.4,
             },
           });
 
@@ -318,31 +327,34 @@ export default function LotMapClient({
         [padded.west, padded.south],
         [padded.east, padded.north],
       ]);
-      map.setMinZoom(Math.max(1, locked.zoom - 0.35));
       map.jumpTo({
         center: [locked.longitude, locked.latitude],
         zoom: locked.zoom,
         bearing: locked.bearing,
         pitch: locked.pitch,
       });
-      // Locked home: rotate/tilt/zoom stay on this lot; no free roaming.
+      // Locked home: rotate/tilt only — no pan, no zoom.
       map.dragPan.disable();
-      map.dragRotate.enable();
-      map.touchZoomRotate.enableRotation();
-      map.scrollZoom.enable();
+      map.scrollZoom.disable();
       map.boxZoom.disable();
+      map.doubleClickZoom.disable();
+      map.touchZoomRotate.disable();
       map.keyboard.disable();
+      map.dragRotate.enable();
+      map.touchPitch.enable();
       return;
     }
 
     map.setMaxBounds(null);
     map.setMinZoom(1);
     map.dragPan.enable();
-    map.dragRotate.enable();
-    map.touchZoomRotate.enableRotation();
     map.scrollZoom.enable();
     map.boxZoom.enable();
+    map.doubleClickZoom.enable();
+    map.touchZoomRotate.enable();
     map.keyboard.enable();
+    map.dragRotate.enable();
+    map.touchPitch.enable();
   }
 
   useEffect(() => {
@@ -427,25 +439,78 @@ export default function LotMapClient({
     }
 
     const ring = points.map((p) => [p.longitude, p.latitude] as [number, number]);
-    const closed =
-      points.length >= 3
-        ? [...ring, [points[0].longitude, points[0].latitude] as [number, number]]
-        : ring;
 
+    // Brush / highlighter stroke — thick line while painting.
     draftSource.setData({
       type: "FeatureCollection",
       features: [
         {
           type: "Feature",
           properties: {},
-          geometry:
-            points.length >= 3
-              ? { type: "Polygon", coordinates: [closed] }
-              : { type: "LineString", coordinates: ring },
+          geometry: { type: "LineString", coordinates: ring },
         },
       ],
     });
   }, [mapReady, draft]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (map.getLayer("draft-line")) {
+      map.setPaintProperty("draft-line", "line-color", brushColor);
+    }
+    if (map.getLayer("draft-fill")) {
+      map.setPaintProperty("draft-fill", "fill-color", brushColor);
+    }
+  }, [mapReady, brushColor]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !focusZoneId) return;
+    const zone = zones.find((z) => z.id === focusZoneId);
+    if (!zone) return;
+    const coords = zone.polygons.flat().filter(isValidPoint);
+    if (coords.length === 0) return;
+
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    for (const point of coords) {
+      minLat = Math.min(minLat, point.latitude);
+      maxLat = Math.max(maxLat, point.latitude);
+      minLng = Math.min(minLng, point.longitude);
+      maxLng = Math.max(maxLng, point.longitude);
+    }
+
+    // When camera is locked we highlight in place; otherwise zoom to the section.
+    if (relocating || !lockedView) {
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 64, duration: 850, maxZoom: 19 },
+      );
+    }
+
+    if (map.getLayer("zones-line")) {
+      map.setPaintProperty("zones-line", "line-width", [
+        "case",
+        ["==", ["get", "name"], zone.name],
+        5,
+        2.5,
+      ]);
+    }
+    if (map.getLayer("zones-fill")) {
+      map.setPaintProperty("zones-fill", "fill-opacity", [
+        "case",
+        ["==", ["get", "name"], zone.name],
+        0.62,
+        0.35,
+      ]);
+    }
+  }, [mapReady, focusZoneId, zones, relocating, lockedView]);
 
   if (error) {
     return (

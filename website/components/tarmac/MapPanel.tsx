@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LotMapApi } from "@/components/tarmac/LotMapClient";
+import { brushStrokeToPolygon } from "@/lib/brush-polygon";
 import {
   type LockedLotView,
   loadLockedLotView,
@@ -32,11 +33,13 @@ const LotMapClient = dynamic(() => import("@/components/tarmac/LotMapClient"), {
 
 type Props = {
   onChanged: () => Promise<void>;
+  focusZoneId?: string | null;
+  onFocusZone?: (zoneId: string) => void;
 };
 
 type Point = { latitude: number; longitude: number };
 
-export function MapPanel({ onChanged }: Props) {
+export function MapPanel({ onChanged, focusZoneId = null, onFocusZone }: Props) {
   const [zones, setZones] = useState<LotZone[]>([]);
   const [vehicles, setVehicles] = useState<ScannedVehicleRow[]>([]);
   const [drawing, setDrawing] = useState(false);
@@ -97,10 +100,12 @@ export function MapPanel({ onChanged }: Props) {
     setBusy(true);
     setError(null);
     try {
-      if (draft.length < 3) throw new Error("Draw a full section outline before saving.");
+      if (draft.length < 2) throw new Error("Paint a stroke for this section before saving.");
+      const polygon = brushStrokeToPolygon(draft, 12);
+      if (polygon.length < 3) throw new Error("Stroke was too short — paint a longer path.");
       await createLotZone({
         name: zoneName.trim() || "Untitled zone",
-        coordinates: draft,
+        coordinates: polygon,
         colorIndex,
       });
       setDraft([]);
@@ -151,24 +156,24 @@ export function MapPanel({ onChanged }: Props) {
         <div>
           <h2>Lot map</h2>
           <p>
-            Fast satellite map with rotate and tilt. Click and drag to paint each lot section.
-            Lock your home view so the camera always returns there.
+            Paint lot sections like a highlighter — the stroke uses the color you pick. Lock a home
+            camera to freeze pan and zoom; rotate and tilt still work.
           </p>
         </div>
         <div className="hero-actions">
           {!drawing ? (
             <button type="button" className="primary" onClick={() => setDrawing(true)}>
-              Draw section
+              Paint section
             </button>
           ) : (
             <>
               <button
                 type="button"
-                disabled={busy || draft.length < 3}
+                disabled={busy || draft.length < 2}
                 className="primary"
                 onClick={() => void handleSaveZone()}
               >
-                Save section ({draft.length} pts)
+                Save paint ({draft.length} pts)
               </button>
               <button
                 type="button"
@@ -200,7 +205,8 @@ export function MapPanel({ onChanged }: Props) {
         ) : (
           <>
             <span className="hint">
-              Lot camera locked. You can zoom, rotate, and tilt — panning away is off.
+              Lot camera locked. Rotate and tilt only — pan and zoom are off until you change
+              placement.
             </span>
             <button type="button" className="ghost" onClick={handleChangePlacement}>
               Change placement
@@ -231,7 +237,7 @@ export function MapPanel({ onChanged }: Props) {
           <button type="button" className="ghost" onClick={() => setDraft([])}>
             Clear stroke
           </button>
-          <span className="hint">Click and drag on the map to draw the section outline.</span>
+          <span className="hint">Click and drag to paint with the selected highlighter color.</span>
         </div>
       ) : null}
 
@@ -244,6 +250,8 @@ export function MapPanel({ onChanged }: Props) {
           vehicles={vehicles}
           draft={draft}
           drawing={drawing}
+          brushColor={ZONE_COLOR_OPTIONS[colorIndex % ZONE_COLOR_OPTIONS.length].stroke}
+          focusZoneId={focusZoneId}
           lockedView={lockedView}
           relocating={relocating}
           onDraftChange={setDraft}
@@ -255,18 +263,24 @@ export function MapPanel({ onChanged }: Props) {
 
       <div className="zone-list">
         {zones.length === 0 ? (
-          <p className="empty">No sections yet — draw one on the map.</p>
+          <p className="empty">No sections yet — paint one on the map.</p>
         ) : (
           zones.map((zone) => (
-            <div key={zone.id} className="zone-row">
-              <div>
+            <div
+              key={zone.id}
+              className={focusZoneId === zone.id ? "zone-row selected" : "zone-row"}
+            >
+              <button
+                type="button"
+                className="zone-main"
+                onClick={() => onFocusZone?.(zone.id)}
+              >
                 <strong style={{ color: zone.strokeColor }}>{zone.name}</strong>
                 <span>
                   {zone.polygons.length} shape
-                  {zone.polygons.length === 1 ? "" : "s"} ·{" "}
-                  {zone.polygons.reduce((n, p) => n + p.length, 0)} points
+                  {zone.polygons.length === 1 ? "" : "s"} · colored section on map
                 </span>
-              </div>
+              </button>
               <div className="zone-actions">
                 <div className="swatches compact">
                   {ZONE_COLOR_OPTIONS.map((color, index) => (
@@ -350,8 +364,13 @@ export function MapPanel({ onChanged }: Props) {
           padding:0.95rem 1.05rem; border:1px solid ${tarmac.lineDim}; border-radius:10px;
           background:${tarmac.asphaltCard};
         }
+        .zone-row.selected { border-color: ${tarmac.teal}; box-shadow: inset 0 0 0 1px rgba(13,148,136,0.28); }
+        .zone-main {
+          border: none; background: transparent; color: inherit; font: inherit;
+          text-align: left; cursor: pointer; padding: 0;
+        }
         .zone-row strong { display:block; }
-        .zone-row span, .empty, .err { color:${tarmac.slate}; font-size:0.78rem; }
+        .zone-row span, .empty, .err { color:#cbd5e1; font-size:0.8rem; }
         .err { color:${tarmac.danger}; margin-bottom:0.75rem; }
       `}</style>
     </div>

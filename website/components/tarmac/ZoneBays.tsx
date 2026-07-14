@@ -1,34 +1,52 @@
 "use client";
 
-import { motion } from "framer-motion";
-
-import { motionEase, tarmac } from "@/lib/tarmac-theme";
+import { tarmac } from "@/lib/tarmac-theme";
 import type { ZoneStat } from "@/lib/types";
 
-export function ZoneBays({ zones }: { zones: ZoneStat[] }) {
+type Props = {
+  zones: ZoneStat[];
+  onSelectZone?: (zoneId: string) => void;
+};
+
+export function ZoneBays({ zones, onSelectZone }: Props) {
   return (
     <div className="zones-bay">
       <span className="bay-label">Lot sections today</span>
       {zones.length === 0 ? (
-        <p className="empty">No sections drawn yet. Create zones on the Map tab in the app.</p>
+        <p className="empty">No sections drawn yet. Paint zones on the Map tab.</p>
       ) : (
         <div className="zone-grid">
-          {zones.map((zone, index) => (
-            <motion.div
-              key={zone.id}
-              className="zone-card"
-              style={{ borderColor: zone.strokeColor }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 + index * 0.07, ease: motionEase }}
-              whileHover={{ y: -3 }}
-            >
-              <span className="swatch" style={{ background: zone.strokeColor }} />
-              <span className="name">{zone.name}</span>
-              <span className="count">{zone.count}</span>
-              <span className="unit">scans today</span>
-            </motion.div>
-          ))}
+          {zones.map((zone) => {
+            const clickable = Boolean(onSelectZone);
+            const sharedProps = {
+              className: clickable ? "zone-card clickable" : "zone-card",
+              style: { borderLeftColor: zone.strokeColor },
+            };
+            const body = (
+              <>
+                <span className="swatch" style={{ background: zone.strokeColor }} />
+                <div className="copy">
+                  <span className="name">{zone.name}</span>
+                  <span className="unit">Scans today</span>
+                </div>
+                <span className="count">{zone.count}</span>
+              </>
+            );
+            return clickable ? (
+              <button
+                key={zone.id}
+                type="button"
+                {...sharedProps}
+                onClick={() => onSelectZone?.(zone.id)}
+              >
+                {body}
+              </button>
+            ) : (
+              <div key={zone.id} {...sharedProps}>
+                {body}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -36,7 +54,7 @@ export function ZoneBays({ zones }: { zones: ZoneStat[] }) {
         .zones-bay {
           background: ${tarmac.asphaltCard};
           border: 1px solid ${tarmac.line};
-          border-radius: 8px;
+          border-radius: 10px;
           padding: 1.25rem;
         }
 
@@ -52,47 +70,73 @@ export function ZoneBays({ zones }: { zones: ZoneStat[] }) {
 
         .zone-grid {
           display: grid;
-          gap: 0.65rem;
+          gap: 0.7rem;
         }
 
         .zone-card {
-          display: grid;
-          grid-template-columns: auto 1fr auto;
-          grid-template-rows: auto auto;
-          gap: 0.15rem 0.65rem;
+          display: flex;
           align-items: center;
-          padding: 0.85rem 1rem;
+          gap: 0.85rem;
+          width: 100%;
+          text-align: left;
+          padding: 0.9rem 1rem;
           background: ${tarmac.asphaltLight};
-          border-radius: 6px;
-          border-left: 4px solid;
+          border-radius: 8px;
+          border: 1px solid ${tarmac.lineDim};
+          border-left: 4px solid ${tarmac.teal};
+          color: inherit;
+          font: inherit;
+        }
+
+        .zone-card.clickable {
+          cursor: pointer;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .zone-card.clickable:hover {
+          background: #1a2330;
+          border-color: ${tarmac.line};
         }
 
         .swatch {
-          width: 10px;
-          height: 10px;
+          width: 12px;
+          height: 12px;
           border-radius: 50%;
-          grid-row: span 2;
+          flex-shrink: 0;
+        }
+
+        .copy {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.28rem;
         }
 
         .name {
           font-weight: 700;
           color: ${tarmac.text};
-          font-size: 0.92rem;
+          font-size: 0.95rem;
+          line-height: 1.2;
+        }
+
+        .unit {
+          font-size: 0.7rem;
+          color: #cbd5e1;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
         }
 
         .count {
           font-family: var(--font-mono), monospace;
-          font-size: 1.35rem;
+          font-size: 1.45rem;
           font-weight: 800;
           color: ${tarmac.text};
-          grid-row: span 2;
-        }
-
-        .unit {
-          font-size: 0.68rem;
-          color: ${tarmac.slate};
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
+          line-height: 1;
+          padding-left: 0.5rem;
+          border-left: 1px solid ${tarmac.lineDim};
+          min-width: 2.4rem;
+          text-align: right;
         }
 
         .empty {

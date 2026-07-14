@@ -1,7 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
-
 import { tarmac } from "@/lib/tarmac-theme";
 import type { InventoryUploadLog } from "@/lib/types";
 
@@ -14,27 +12,37 @@ function formatDate(iso: string): string {
   });
 }
 
-export function UploadStrip({ uploads }: { uploads: InventoryUploadLog[] }) {
+type Props = {
+  uploads: InventoryUploadLog[];
+  selectedUploadId: string | null;
+  onSelect: (uploadId: string) => void;
+};
+
+export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
   return (
     <div className="strip">
-      <span className="label">PDF upload log</span>
+      <span className="label">Price lists · select to load that audit</span>
       <div className="track">
         {uploads.length === 0 ? (
           <span className="empty">No price lists uploaded yet.</span>
         ) : (
-          uploads.map((upload) => (
-            <motion.div
-              key={upload.id}
-              className="chip"
-              whileHover={{ scale: 1.02 }}
-            >
-              <span className="file">{upload.fileName}</span>
-              <span className="meta">
-                {formatDate(upload.uploadedAt)} · {upload.itemCount} vehicles
-                {upload.isCurrent ? " · Active" : ""}
-              </span>
-            </motion.div>
-          ))
+          uploads.map((upload) => {
+            const selected = upload.id === selectedUploadId || upload.isCurrent;
+            return (
+              <button
+                key={upload.id}
+                type="button"
+                className={selected ? "chip selected" : "chip"}
+                onClick={() => onSelect(upload.id)}
+              >
+                <span className="file">{upload.fileName}</span>
+                <span className="meta">
+                  {formatDate(upload.uploadedAt)} · {upload.itemCount} vehicles
+                  {selected ? " · Viewing" : ""}
+                </span>
+              </button>
+            );
+          })
         )}
       </div>
 
@@ -42,7 +50,7 @@ export function UploadStrip({ uploads }: { uploads: InventoryUploadLog[] }) {
         .strip {
           background: ${tarmac.asphaltCard};
           border: 1px solid ${tarmac.line};
-          border-radius: 8px;
+          border-radius: 10px;
           padding: 1rem 1.25rem;
         }
 
@@ -65,11 +73,21 @@ export function UploadStrip({ uploads }: { uploads: InventoryUploadLog[] }) {
 
         .chip {
           flex: 0 0 auto;
-          min-width: 200px;
-          padding: 0.75rem 0.9rem;
+          min-width: 210px;
+          padding: 0.85rem 0.95rem;
           background: ${tarmac.asphaltLight};
-          border-radius: 6px;
+          border-radius: 8px;
           border: 1px solid ${tarmac.lineDim};
+          text-align: left;
+          color: inherit;
+          font: inherit;
+          cursor: pointer;
+        }
+
+        .chip.selected {
+          border-color: ${tarmac.teal};
+          background: rgba(13, 148, 136, 0.12);
+          box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.25);
         }
 
         .file {
@@ -80,14 +98,14 @@ export function UploadStrip({ uploads }: { uploads: InventoryUploadLog[] }) {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          max-width: 220px;
+          max-width: 240px;
         }
 
         .meta {
           display: block;
-          margin-top: 0.2rem;
+          margin-top: 0.25rem;
           font-size: 0.72rem;
-          color: ${tarmac.slate};
+          color: #cbd5e1;
         }
 
         .empty {

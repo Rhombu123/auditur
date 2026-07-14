@@ -13,7 +13,7 @@ import type {
 import type { ScannedVehicleRow } from "@/lib/web-api-types";
 
 const DEMO_FLAG = "auditur.demoLot.enabled";
-const DEMO_STATE = "auditur.demoLot.state.v1";
+const DEMO_STATE = "auditur.demoLot.state.v2";
 
 /** Rough dealership lot near DFW for satellite / rotate demos. */
 const LOT = {
@@ -21,12 +21,15 @@ const LOT = {
   lng: -97.040_337,
 };
 
-type DemoScan = ScannedVehicleRow & { id: string };
+type DemoScan = ScannedVehicleRow;
+
+type DemoUpload = InventoryUploadLog & {
+  items: InventoryItem[];
+};
 
 type DemoState = {
-  inventoryFileName: string;
-  inventory: InventoryItem[];
-  uploads: InventoryUploadLog[];
+  selectedUploadId: string;
+  uploads: DemoUpload[];
   scans: DemoScan[];
   zones: LotZone[];
 };
@@ -35,18 +38,55 @@ function hoursAgo(h: number) {
   return new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
 }
 
+function car(
+  vinSuffix: string,
+  model: string,
+  color: string,
+  daysOnLot: number,
+): InventoryItem {
+  return { vinSuffix, model, color, daysOnLot };
+}
+
 function buildSeed(): DemoState {
-  const inventory: InventoryItem[] = [
-    { vinSuffix: "A1842", model: "F-150 XLT", color: "Oxford White", daysOnLot: 12 },
-    { vinSuffix: "B3310", model: "Explorer ST", color: "Agate Black", daysOnLot: 4 },
-    { vinSuffix: "C9021", model: "Bronco Sport", color: "Area 51", daysOnLot: 21 },
-    { vinSuffix: "D4412", model: "Mustang GT", color: "Grabber Blue", daysOnLot: 9 },
-    { vinSuffix: "E7780", model: "Escape Hybrid", color: "Space White", daysOnLot: 2 },
-    { vinSuffix: "F1209", model: "Ranger Lariat", color: "Cyber Orange", daysOnLot: 16 },
-    { vinSuffix: "G5530", model: "Edge SEL", color: "Carbonized Gray", daysOnLot: 7 },
-    { vinSuffix: "H8901", model: "Maverick XL", color: "Area 51", daysOnLot: 3 },
-    { vinSuffix: "J2204", model: "Transit Cargo", color: "Oxford White", daysOnLot: 28 },
-    { vinSuffix: "K6677", model: "Expedition Max", color: "Star White", daysOnLot: 11 },
+  const upload1Items = [
+    car("A1842", "F-150 XLT", "Oxford White", 12),
+    car("B3310", "Explorer ST", "Agate Black", 4),
+    car("C9021", "Bronco Sport", "Area 51", 21),
+    car("D4412", "Mustang GT", "Grabber Blue", 9),
+    car("E7780", "Escape Hybrid", "Space White", 2),
+    car("F1209", "Ranger Lariat", "Cyber Orange", 16),
+    car("G5530", "Edge SEL", "Carbonized Gray", 7),
+    car("H8901", "Maverick XL", "Area 51", 3),
+    car("J2204", "Transit Cargo", "Oxford White", 28),
+    car("K6677", "Expedition Max", "Star White", 11),
+  ];
+
+  const upload2Items = [
+    ...upload1Items,
+    car("L1102", "F-250 Lariat", "Antimatter Blue", 1),
+    car("M3344", "Bronco Badlands", "Cactus Gray", 5),
+    car("N7788", "Mach-E GT", "Grabber Yellow", 8),
+  ];
+
+  const uploads: DemoUpload[] = [
+    {
+      id: "upload-demo-2",
+      fileName: "DFW-Used-PriceList-Jul.pdf",
+      uploadedAt: hoursAgo(8),
+      itemCount: upload2Items.length,
+      isCurrent: true,
+      hasStoredPdf: true,
+      items: upload2Items,
+    },
+    {
+      id: "upload-demo-1",
+      fileName: "DFW-Used-PriceList-Jun.pdf",
+      uploadedAt: hoursAgo(96),
+      itemCount: upload1Items.length,
+      isCurrent: false,
+      hasStoredPdf: true,
+      items: upload1Items,
+    },
   ];
 
   const scans: DemoScan[] = [
@@ -168,26 +208,8 @@ function buildSeed(): DemoState {
   ];
 
   return {
-    inventoryFileName: "DFW-Used-PriceList-Demo.pdf",
-    inventory,
-    uploads: [
-      {
-        id: "upload-demo-1",
-        fileName: "DFW-Used-PriceList-Demo.pdf",
-        uploadedAt: hoursAgo(26),
-        itemCount: inventory.length,
-        isCurrent: true,
-        hasStoredPdf: true,
-      },
-      {
-        id: "upload-demo-0",
-        fileName: "DFW-Used-PriceList-Jun.pdf",
-        uploadedAt: hoursAgo(96),
-        itemCount: 48,
-        isCurrent: false,
-        hasStoredPdf: false,
-      },
-    ],
+    selectedUploadId: uploads[0].id,
+    uploads,
     scans,
     zones,
   };
@@ -242,11 +264,30 @@ export function resetDemoLot(): DemoState {
   return seed;
 }
 
-export function getDemoDashboard(): DashboardData {
+function selectedUpload(state: DemoState, uploadId?: string | null): DemoUpload {
+  const id = uploadId || state.selectedUploadId || state.uploads[0]?.id;
+  return state.uploads.find((u) => u.id === id) ?? state.uploads[0];
+}
+
+export function setDemoSelectedUpload(uploadId: string): void {
   const state = readState();
+  if (!state.uploads.some((u) => u.id === uploadId)) {
+    throw new Error("Upload not found.");
+  }
+  state.selectedUploadId = uploadId;
+  state.uploads = state.uploads.map((u) => ({ ...u, isCurrent: u.id === uploadId }));
+  writeState(state);
+}
+
+export function getDemoDashboard(uploadId?: string | null): DashboardData {
+  const state = readState();
+  const upload = selectedUpload(state, uploadId);
+  const inventory = upload?.items ?? [];
+  const fileName = upload?.fileName ?? null;
+
   const audit = buildTodayAuditSummary({
-    inventoryFileName: state.inventoryFileName,
-    inventoryItems: state.inventory,
+    inventoryFileName: fileName,
+    inventoryItems: inventory,
     scansToday: state.scans.map((row) => ({
       vinSuffix: row.vinSuffix,
       model: row.model,
@@ -301,7 +342,14 @@ export function getDemoDashboard(): DashboardData {
   return {
     audit,
     recentScans,
-    uploadLog: state.uploads,
+    uploadLog: state.uploads.map((u) => ({
+      id: u.id,
+      fileName: u.fileName,
+      uploadedAt: u.uploadedAt,
+      itemCount: u.itemCount,
+      isCurrent: u.id === upload?.id,
+      hasStoredPdf: u.hasStoredPdf,
+    })),
     zoneStats,
     totalPinnedVehicles: new Set(state.scans.map((s) => s.vinSuffix.toUpperCase())).size,
   };
@@ -320,9 +368,13 @@ export function getDemoScannedVehicles(): ScannedVehicleRow[] {
   return Array.from(latest.values());
 }
 
-export function getDemoInventory(): { fileName: string; items: InventoryItem[] } {
+export function getDemoInventory(uploadId?: string | null): {
+  fileName: string;
+  items: InventoryItem[];
+} {
   const state = readState();
-  return { fileName: state.inventoryFileName, items: state.inventory };
+  const upload = selectedUpload(state, uploadId);
+  return { fileName: upload.fileName, items: upload.items };
 }
 
 export function demoCreateZone(input: {
@@ -394,27 +446,29 @@ export function demoDeleteUpload(uploadId: string): void {
   const state = readState();
   state.uploads = state.uploads.filter((u) => u.id !== uploadId);
   if (state.uploads[0]) {
+    state.selectedUploadId = state.uploads[0].id;
     state.uploads = state.uploads.map((u, i) => ({ ...u, isCurrent: i === 0 }));
-    state.inventoryFileName = state.uploads[0].fileName;
   } else {
-    state.inventory = [];
-    state.inventoryFileName = "No price list";
+    state.selectedUploadId = "";
   }
   writeState(state);
 }
 
 export function demoUploadPdf(fileName: string): void {
   const state = readState();
+  const template = state.uploads[0]?.items ?? [];
+  const id = `upload-${Date.now()}`;
   state.uploads = state.uploads.map((u) => ({ ...u, isCurrent: false }));
   state.uploads.unshift({
-    id: `upload-${Date.now()}`,
+    id,
     fileName,
     uploadedAt: new Date().toISOString(),
-    itemCount: state.inventory.length,
+    itemCount: template.length,
     isCurrent: true,
     hasStoredPdf: true,
+    items: template,
   });
-  state.inventoryFileName = fileName;
+  state.selectedUploadId = id;
   writeState(state);
 }
 

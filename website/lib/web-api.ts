@@ -46,13 +46,42 @@ function zoneColorByIndex(index: number) {
   return ZONE_COLOR_OPTIONS[index % ZONE_COLOR_OPTIONS.length];
 }
 
-async function fetchInventory() {
-  const { data: upload } = await supabase
+async function fetchInventory(uploadId?: string | null) {
+  let uploadQuery = supabase
     .from("inventory_uploads")
     .select("id, file_name, uploaded_at")
     .order("uploaded_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  if (uploadId) {
+    const { data: byId, error } = await supabase
+      .from("inventory_uploads")
+      .select("id, file_name, uploaded_at")
+      .eq("id", uploadId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!byId) return null;
+    const { data: items, error: itemsError } = await supabase
+      .from("inventory_items")
+      .select("vin_suffix, model, color, days_on_lot")
+      .eq("upload_id", byId.id)
+      .eq("lot_status", "active")
+      .order("vin_suffix", { ascending: true });
+    if (itemsError) throw itemsError;
+    return {
+      id: byId.id as string,
+      fileName: byId.file_name as string,
+      uploadedAt: byId.uploaded_at as string,
+      items: (items ?? []).map((row) => ({
+        vinSuffix: row.vin_suffix as string,
+        model: row.model as string,
+        color: row.color as string,
+        daysOnLot: row.days_on_lot as number | null,
+      })),
+    };
+  }
+
+  const { data: upload } = await uploadQuery.maybeSingle();
 
   if (!upload) return null;
 
@@ -94,30 +123,36 @@ export async function fetchZones(): Promise<LotZone[]> {
   }));
 }
 
-export async function fetchDashboardData(): Promise<DashboardData> {
-  if (isDemoLotEnabled()) return getDemoDashboard();
+export async function fetchDashboardData(uploadId?: string | null): Promise<DashboardData> {
+  if (isDemoLotEnabled()) {
+    if (uploadId) {
+      const { setDemoSelectedUpload } = await import("@/lib/demo-store");
+      setDemoSelectedUpload(uploadId);
+    }
+    return getDemoDashboard(uploadId);
+  }
 
   try {
-    const data = await fetchLiveDashboardData();
+    const data = await fetchLiveDashboardData(uploadId);
     const empty =
       !data.audit && data.totalPinnedVehicles === 0 && data.uploadLog.length === 0;
     if (empty) {
       const { enableDemoLot } = await import("@/lib/demo-store");
       enableDemoLot();
-      return getDemoDashboard();
+      return getDemoDashboard(uploadId);
     }
     return data;
   } catch {
     const { enableDemoLot } = await import("@/lib/demo-store");
     enableDemoLot();
-    return getDemoDashboard();
+    return getDemoDashboard(uploadId);
   }
 }
 
-async function fetchLiveDashboardData(): Promise<DashboardData> {
+async function fetchLiveDashboardData(uploadId?: string | null): Promise<DashboardData> {
   const [inventory, { data: scans, error: scansError }, uploadRows, zones] =
     await Promise.all([
-      fetchInventory(),
+      fetchInventory(uploadId),
       supabase
         .from("vehicle_scans")
         .select(
@@ -194,7 +229,7 @@ async function fetchLiveDashboardData(): Promise<DashboardData> {
     count: zoneVinSets.get(zone.id)?.size ?? 0,
   }));
 
-  const currentId = uploadRows.data?.[0]?.id ?? null;
+  const activeId = inventory?.id ?? uploadRows.data?.[0]?.id ?? null;
 
   return {
     audit,
@@ -206,7 +241,7 @@ async function fetchLiveDashboardData(): Promise<DashboardData> {
       fileName: row.file_name as string,
       uploadedAt: row.uploaded_at as string,
       itemCount: (row.item_count as number) ?? 0,
-      isCurrent: row.id === currentId,
+      isCurrent: row.id === activeId,
       hasStoredPdf: Boolean(row.storage_path),
     })),
   };
