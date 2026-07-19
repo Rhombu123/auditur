@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { useDealership } from "@/lib/dealership-context";
 import type { DashboardData } from "@/lib/types";
 import { exportHighlightedAuditPdf } from "@/lib/web-api";
 import { tarmac } from "@/lib/tarmac-theme";
@@ -15,6 +16,7 @@ type Props = {
 type ListKey = "missing" | "notOnList" | "scanned";
 
 export function AuditPanel({ data, onRefresh, searchQuery }: Props) {
+  const { hasPermission } = useDealership();
   const audit = data.audit;
   const [list, setList] = useState<ListKey>("missing");
   const [exporting, setExporting] = useState(false);
@@ -39,6 +41,7 @@ export function AuditPanel({ data, onRefresh, searchQuery }: Props) {
   }, [sourceRows, searchQuery]);
 
   async function handleExport() {
+    if (audit?.fileFormat === "csv") return;
     setMessage(null);
     setExporting(true);
     try {
@@ -85,16 +88,27 @@ export function AuditPanel({ data, onRefresh, searchQuery }: Props) {
           >
             Refresh
           </button>
-          <button
-            type="button"
-            className="ui-btn ui-btn-primary"
-            disabled={exporting}
-            onClick={() => void handleExport()}
-          >
-            {exporting ? "Exporting…" : "Export PDF"}
-          </button>
+          {hasPermission("export_audits") ? (
+            <button
+              type="button"
+              className="ui-btn ui-btn-primary"
+              disabled={exporting || audit.fileFormat === "csv"}
+              onClick={() => void handleExport()}
+            >
+              {audit.fileFormat === "csv"
+                ? "Highlighted PDF unavailable"
+                : exporting
+                  ? "Exporting…"
+                  : "Export highlighted PDF"}
+            </button>
+          ) : null}
         </div>
       </div>
+      {hasPermission("export_audits") && audit.fileFormat === "csv" ? (
+        <p className="export-note">
+          CSV-backed audits do not have an original PDF to highlight.
+        </p>
+      ) : null}
 
       <div className="filters">
         <div className="seg" role="tablist" aria-label="Audit lists">
@@ -257,4 +271,10 @@ const styles = `
   .row strong { display: block; font-size: 0.92rem; color: ${tarmac.text}; }
   .row span { color: ${tarmac.slate}; font-size: 0.78rem; }
   .empty, .msg { color: ${tarmac.slate}; font-size: 0.88rem; }
+  .export-note {
+    margin: -0.35rem 0 0.9rem;
+    color: ${tarmac.slate};
+    font-size: 0.78rem;
+    text-align: right;
+  }
 `;

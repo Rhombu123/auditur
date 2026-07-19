@@ -13,6 +13,11 @@ import {
 } from "react-native";
 
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
+import {
+  TurnstileWidget,
+  turnstileConfigured,
+} from "@/components/turnstile-widget";
 import { colors, radius, shadow, spacing } from "@/constants/theme";
 import { authStorageUsesMemory } from "@/lib/auth-storage";
 import { type AccountType, useAuth } from "@/lib/auth-context";
@@ -20,7 +25,7 @@ import { type AccountType, useAuth } from "@/lib/auth-context";
 type Mode = "login" | "signup";
 
 export default function LoginScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, resendSignupConfirmation } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,27 +33,44 @@ export default function LoginScreen() {
   const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
 
   async function handleSubmit() {
     setError(null);
+    setConfirmationEmail(null);
     setLoading(true);
     try {
       if (mode === "signup") {
         if (!accountType) throw new Error("Choose owner / GM or employee.");
-        await signUp(email, password, { fullName, accountType });
+        const result = await signUp(
+          email,
+          password,
+          { fullName, accountType },
+          captchaToken ?? undefined,
+        );
+        if (result === "confirmation-required") {
+          setConfirmationEmail(email.trim().toLowerCase());
+        }
       } else {
-        await signIn(email, password);
+        await signIn(email, password, captchaToken ?? undefined);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Authentication failed.");
     } finally {
+      setCaptchaToken(null);
+      setCaptchaAttempt((value) => value + 1);
       setLoading(false);
     }
   }
 
   const canSubmit =
     email.includes("@") &&
-    password.length >= 8 &&
+    (mode === "login" || password.length >= 12) &&
+    (__DEV__
+      ? !turnstileConfigured || Boolean(captchaToken)
+      : turnstileConfigured && Boolean(captchaToken)) &&
     (mode === "login" || (Boolean(fullName.trim()) && accountType !== null));
 
   return (
@@ -140,16 +162,19 @@ export default function LoginScreen() {
               />
 
               <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={styles.input}
+              <PasswordInput
+                style={styles.passwordText}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="At least 8 characters"
+                placeholder={
+                  mode === "signup" ? "12+ chars, mixed case, number, symbol" : "Password"
+                }
                 placeholderTextColor={colors.textMuted}
-                secureTextEntry
                 textContentType={mode === "signup" ? "newPassword" : "password"}
                 autoComplete={mode === "signup" ? "new-password" : "current-password"}
               />
+              <TurnstileWidget key={captchaAttempt} onToken={setCaptchaToken} />
+
               <Button
                 label={
                   loading
@@ -166,6 +191,29 @@ export default function LoginScreen() {
               />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          {confirmationEmail ? (
+            <View style={styles.confirmation}>
+              <Text style={styles.confirmationTitle}>Check your work email</Text>
+              <Text style={styles.confirmationText}>
+                Confirm {confirmationEmail}, then return here and sign in to set up
+                Microsoft Authenticator.
+              </Text>
+              <Button
+                label="Resend confirmation"
+                variant="secondary"
+                onPress={() =>
+                  void resendSignupConfirmation(confirmationEmail).catch(
+                    (resendError) =>
+                      setError(
+                        resendError instanceof Error
+                          ? resendError.message
+                          : "Could not resend confirmation.",
+                      ),
+                  )
+                }
+              />
+            </View>
+          ) : null}
         </View>
 
         {authStorageUsesMemory ? (
@@ -259,7 +307,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: colors.text,
   },
+  passwordText: { fontSize: 17 },
   error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
+  confirmation: {
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primaryLight,
+  },
+  confirmationTitle: { color: colors.primaryDark, fontWeight: "800" },
+  confirmationText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   devNote: {
     marginTop: spacing.lg,
     textAlign: "center",

@@ -37,8 +37,8 @@ function LoginContent() {
     >
       <EmailAuthForm
         mode="login"
-        onSubmit={async (email, password) => {
-          await signInWithPassword(email, password);
+        onSubmit={async (email, password, _signup, captchaToken) => {
+          await signInWithPassword(email, password, captchaToken);
           router.replace(returnTo);
         }}
       />

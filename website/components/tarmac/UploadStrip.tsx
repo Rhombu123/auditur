@@ -12,6 +12,14 @@ function formatDate(iso: string): string {
   });
 }
 
+function formatSource(sourceSystem: string | undefined): string {
+  if (!sourceSystem || sourceSystem === "unknown") return "Unknown source";
+  return sourceSystem
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 type Props = {
   uploads: InventoryUploadLog[];
   selectedUploadId: string | null;
@@ -21,7 +29,7 @@ type Props = {
 export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
   return (
     <div className="strip">
-      <span className="label">Price lists · select to load that audit</span>
+      <span className="label">Audit files · select to load that audit</span>
       <div className="track">
         {uploads.length === 0 ? (
           <span className="empty">No price lists uploaded yet.</span>
@@ -38,6 +46,11 @@ export function UploadStrip({ uploads, selectedUploadId, onSelect }: Props) {
                 <span className="file">{upload.fileName}</span>
                 <span className="meta">
                   {formatDate(upload.uploadedAt)} · {upload.itemCount} vehicles
+                  {" · "}{(upload.fileFormat ?? "pdf").toUpperCase()}
+                  {" · "}{formatSource(upload.sourceSystem)}
+                  {upload.warnings.length > 0
+                    ? ` · ${upload.warnings.length} warning${upload.warnings.length === 1 ? "" : "s"}`
+                    : ""}
                   {selected ? " · Viewing" : ""}
                 </span>
               </button>

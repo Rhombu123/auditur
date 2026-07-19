@@ -5,6 +5,7 @@ export const ADMIN_EMAIL = "admin@auditur.app";
 
 export function isLocalDevHost(): boolean {
   if (typeof window === "undefined") return false;
+  if (process.env.NEXT_PUBLIC_ENABLE_LOCAL_ADMIN_BYPASS !== "true") return false;
   const host = window.location.hostname;
   return host === "localhost" || host === "127.0.0.1";
 }

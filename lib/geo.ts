@@ -72,3 +72,102 @@ export function findCoLocatedVehicles<T extends { id: string; latitude: number; 
     (v) => locationKey(v.latitude, v.longitude) === key,
   );
 }
+
+type MapRegion = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+export type ViewportVehicleCluster<T> = {
+  key: string;
+  coordinate: { latitude: number; longitude: number };
+  vehicles: T[];
+};
+
+export function isValidMapCoordinate(point: {
+  latitude: number;
+  longitude: number;
+}): boolean {
+  return (
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180 &&
+    !(point.latitude === 0 && point.longitude === 0)
+  );
+}
+
+/**
+ * Groups markers by their rendered screen distance, so pins that would overlap
+ * collapse into one marker at wider zoom levels and split apart as users zoom in.
+ */
+export function clusterVehiclesByViewport<
+  T extends { id: string; latitude: number; longitude: number },
+>(
+  vehicles: T[],
+  region: MapRegion,
+  viewport: { width: number; height: number },
+  thresholdPixels = 48,
+): ViewportVehicleCluster<T>[] {
+  if (vehicles.length === 0) return [];
+  if (
+    region.latitudeDelta <= 0 ||
+    region.longitudeDelta <= 0 ||
+    viewport.width <= 0 ||
+    viewport.height <= 0
+  ) {
+    return vehicles.map((vehicle) => ({
+      key: vehicle.id,
+      coordinate: {
+        latitude: vehicle.latitude,
+        longitude: vehicle.longitude,
+      },
+      vehicles: [vehicle],
+    }));
+  }
+
+  const grouped = new Map<string, T[]>();
+  for (const vehicle of vehicles) {
+    if (!isValidMapCoordinate(vehicle)) continue;
+    const x =
+      ((vehicle.longitude - region.longitude) / region.longitudeDelta + 0.5) *
+      viewport.width;
+    const y =
+      (0.5 - (vehicle.latitude - region.latitude) / region.latitudeDelta) *
+      viewport.height;
+
+    // Ignore far-offscreen points so they cannot pull a visible cluster centroid
+    // into empty map space. One cell of padding keeps edge markers stable.
+    if (
+      x < -thresholdPixels ||
+      x > viewport.width + thresholdPixels ||
+      y < -thresholdPixels ||
+      y > viewport.height + thresholdPixels
+    ) {
+      continue;
+    }
+
+    const cellKey = `${Math.floor(x / thresholdPixels)}:${Math.floor(
+      y / thresholdPixels,
+    )}`;
+    grouped.set(cellKey, [...(grouped.get(cellKey) ?? []), vehicle]);
+  }
+
+  return Array.from(grouped.values()).map((group) => ({
+    key: `cluster:${group
+      .map((vehicle) => vehicle.id)
+      .sort()
+      .join(",")}`,
+    coordinate: {
+      latitude:
+        group.reduce((sum, vehicle) => sum + vehicle.latitude, 0) / group.length,
+      longitude:
+        group.reduce((sum, vehicle) => sum + vehicle.longitude, 0) / group.length,
+    },
+    vehicles: group,
+  }));
+}

@@ -16,9 +16,7 @@ export function formatVinSecondary(
   vinSuffix: string,
 ): string | null {
   const full = formatFullVin(vin);
-  if (!full) return null;
-  if (full.slice(-6) === vinSuffix.toUpperCase()) {
-    return `Last 6: ${vinSuffix.toUpperCase()}`;
-  }
-  return `Last 6: ${vinSuffix.toUpperCase()}`;
+  if (full) return full.slice(-8);
+  const normalizedSuffix = vinSuffix.toUpperCase();
+  return normalizedSuffix.length >= 8 ? normalizedSuffix.slice(-8) : null;
 }

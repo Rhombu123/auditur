@@ -1,3 +1,5 @@
+import { MotiView } from "moti";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
 import { colors, radius, spacing } from "@/constants/theme";
@@ -11,19 +13,32 @@ type Props = {
 };
 
 export function Chip({ label, selected, onPress, style, accentColor }: Props) {
+  const [pressed, setPressed] = useState(false);
   const content = (
-    <View style={[styles.chip, selected && styles.chipSelected, style]}>
+    <MotiView
+      animate={{
+        scale: pressed ? 0.97 : 1,
+        borderColor: selected ? colors.primary : colors.border,
+        backgroundColor: selected ? colors.primaryLight : colors.surface,
+      }}
+      transition={{ type: "timing", duration: 170 }}
+      style={[styles.chip, style]}
+    >
       {accentColor ? (
         <View style={[styles.dot, { backgroundColor: accentColor }]} />
       ) : null}
       <Text style={[styles.text, selected && styles.textSelected]}>{label}</Text>
-    </View>
+    </MotiView>
   );
 
   if (!onPress) return content;
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+    >
       {content}
     </Pressable>
   );
@@ -40,6 +55,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   chip: {
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
@@ -49,10 +65,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-  },
-  chipSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
   },
   text: {
     color: colors.textSecondary,
@@ -68,5 +80,4 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  pressed: { opacity: 0.85 },
 });

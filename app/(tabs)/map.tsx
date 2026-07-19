@@ -1,39 +1,57 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { MotiView } from "moti";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
-import MapView, { Marker, Polygon, type MapPressEvent } from "react-native-maps";
+import MapView, {
+  Marker,
+  Polygon,
+  Polyline,
+  type Camera,
+  type MapPressEvent,
+  type Region,
+} from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MapDrawToolbar, type ZoneEditorTool } from "@/components/map-draw-toolbar";
-import { MapVehicleSheet } from "@/components/map-vehicle-sheet";
 import { ProfileAvatarButton } from "@/components/profile-avatar-button";
 import { ZoneHandleMarker } from "@/components/zone-handle-marker";
 import { Chip } from "@/components/ui/chip";
 import { CoLocatedVehiclesModal } from "@/components/co-located-vehicles-modal";
 import { LotZoneNameModal } from "@/components/lot-zone-name-modal";
 import { ZoneColorModal } from "@/components/zone-color-modal";
-import { VehicleEditorModal } from "@/components/vehicle-editor-modal";
-import { Button } from "@/components/ui/button";
-import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
+import { colors, radius, shadow, spacing } from "@/constants/theme";
+import { brushStrokeToPolygon } from "@/lib/brush-polygon";
+import { useDealership } from "@/lib/dealership-context";
 import { getErrorMessage } from "@/lib/errors";
-import { findCoLocatedVehicles, findZoneForPoint, groupVehiclesByLocation } from "@/lib/geo";
+import {
+  clusterVehiclesByViewport,
+  findZoneForPoint,
+  isValidMapCoordinate,
+} from "@/lib/geo";
 import {
   MOBILE_CACHE_KEYS,
   readMobileCache,
   writeMobileCache,
 } from "@/lib/mobile-cache";
+import {
+  loadMobileLotView,
+  removeMobileLotView,
+  saveMobileLotView,
+  type MobileLotView,
+} from "@/lib/mobile-lot-view";
 import {
   createLotZone,
   deleteLotZone,
@@ -41,18 +59,20 @@ import {
   fetchScannedVehicles,
   updateLotZone,
   updateLotZoneColors,
-  updateScannedVehicle,
 } from "@/lib/mobile-api";
 import type { LotZone, ScannedVehicle } from "@/lib/types";
 import { normalizeZoneName } from "@/lib/lot-zone-storage";
 import type { MapPoint } from "@/lib/zone-curves";
+import { ZONE_COLOR_OPTIONS } from "@/lib/zone-colors";
 import {
-  circlePolygon,
   createShapeAt,
+  editableShapeFromPolygon,
   findNearestPolygonIndex,
-  HIGHLIGHT_RADIUS,
   moveShapeCenter,
   polygonCenter,
+  rotationHandleConnector,
+  rotateShapeToward,
+  rotationHandlePosition,
   resizeShapeFromHandle,
   shapeHandlePositions,
   shapeToPolygon,
@@ -60,17 +80,36 @@ import {
   type EditableShape,
   type ZoneShapeKind,
 } from "@/lib/zone-shapes";
-import { formatVinPrimary } from "@/lib/vin-display";
-import { matchesVehicleSearch } from "@/lib/vin-search";
+import { formatVinPrimary, formatVinSecondary } from "@/lib/vin-display";
 import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
 
 type DraftEntry = {
   id: string;
   shape: EditableShape | null;
   freehandPoints: MapPoint[] | null;
+  strokePoints: MapPoint[] | null;
 };
 
 type EditorMode = "idle" | "create" | "edit";
+
+function normalizeVinSearch(value: string): string {
+  return value.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+}
+
+function vehicleStartsWithVin(
+  vehicle: ScannedVehicle,
+  normalizedQuery: string,
+): boolean {
+  if (!normalizedQuery) return false;
+  const fullVin = normalizeVinSearch(vehicle.vin ?? "");
+  const suffix = normalizeVinSearch(vehicle.vinSuffix);
+  const candidates = [
+    fullVin,
+    fullVin.length >= 8 ? fullVin.slice(-8) : "",
+    suffix,
+  ];
+  return candidates.some((candidate) => candidate.startsWith(normalizedQuery));
+}
 
 function createEntryId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -85,32 +124,152 @@ function isShapeTool(tool: ZoneEditorTool): tool is ZoneShapeKind {
   return tool === "rectangle" || tool === "square" || tool === "oval";
 }
 
+function distanceMeters(a: MapPoint, b: MapPoint): number {
+  const latitudeDistance = (a.latitude - b.latitude) * 111_320;
+  const longitudeDistance =
+    (a.longitude - b.longitude) *
+    111_320 *
+    Math.cos((a.latitude * Math.PI) / 180);
+  return Math.hypot(latitudeDistance, longitudeDistance);
+}
+
+function colorWithOpacity(color: string, opacity: number): string {
+  const match = color.match(/^#([0-9a-f]{6})$/i);
+  if (!match) return color;
+  const value = Number.parseInt(match[1], 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
+}
+
+function vehiclePinColor(vehicle: ScannedVehicle, selected: boolean): string {
+  if (selected) return colors.mapPinSelected;
+  if (vehicle.lotStatus === "removed") return colors.danger;
+  if (vehicle.lotStatus === "sold" || vehicle.lotStatus === "auctioned") {
+    return colors.warning;
+  }
+  return vehicle.matched ? colors.mapPin : colors.accent;
+}
+
+function pointIsInsidePolygon(point: MapPoint, polygon: MapPoint[]): boolean {
+  if (polygon.length < 3) return false;
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+    const currentPoint = polygon[current];
+    const previousPoint = polygon[previous];
+    const crossesLatitude =
+      currentPoint.latitude > point.latitude !== previousPoint.latitude > point.latitude;
+    if (!crossesLatitude) continue;
+    const edgeLongitude =
+      ((previousPoint.longitude - currentPoint.longitude) *
+        (point.latitude - currentPoint.latitude)) /
+        (previousPoint.latitude - currentPoint.latitude) +
+      currentPoint.longitude;
+    if (point.longitude < edgeLongitude) inside = !inside;
+  }
+  return inside;
+}
+
+function orientation(a: MapPoint, b: MapPoint, c: MapPoint): number {
+  return (
+    (b.longitude - a.longitude) * (c.latitude - a.latitude) -
+    (b.latitude - a.latitude) * (c.longitude - a.longitude)
+  );
+}
+
+function segmentsIntersect(
+  a: MapPoint,
+  b: MapPoint,
+  c: MapPoint,
+  d: MapPoint,
+): boolean {
+  const abC = orientation(a, b, c);
+  const abD = orientation(a, b, d);
+  const cdA = orientation(c, d, a);
+  const cdB = orientation(c, d, b);
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function isSelfIntersectingPolygon(points: MapPoint[]): boolean {
+  if (points.length < 4) return false;
+  for (let first = 0; first < points.length; first++) {
+    const firstNext = (first + 1) % points.length;
+    for (let second = first + 2; second < points.length; second++) {
+      const secondNext = (second + 1) % points.length;
+      if (first === secondNext || firstNext === second) continue;
+      if (
+        segmentsIntersect(
+          points[first],
+          points[firstNext],
+          points[second],
+          points[secondNext],
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function recoverBrushCenterline(polygon: MapPoint[]): MapPoint[] {
+  if (polygon.length < 4 || polygon.length % 2 !== 0) return [];
+  const half = polygon.length / 2;
+  const left = polygon.slice(0, half);
+  const right = polygon.slice(half).reverse();
+  return left.map((point, index) => ({
+    latitude: (point.latitude + right[index].latitude) / 2,
+    longitude: (point.longitude + right[index].longitude) / 2,
+  }));
+}
+
 export default function MapScreen() {
+  const {
+    activeDealership,
+    hasPermission,
+    status: dealershipStatus,
+  } = useDealership();
+  const canManageMap = hasPermission("manage_map");
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ selectedId?: string }>();
   const mapRef = useRef<MapView>(null);
+  const activePaintEntryIdRef = useRef<string | null>(null);
+  const activePaintPointsRef = useRef<MapPoint[]>([]);
+  const paintDidDragRef = useRef(false);
+  const transformShapeRef = useRef<EditableShape | null>(null);
+  const eraseGestureActiveRef = useRef(false);
 
   const [vehicles, setVehicles] = useState<ScannedVehicle[]>([]);
   const [zones, setZones] = useState<LotZone[]>([]);
-  const [search, setSearch] = useState("");
+  const [vinQuery, setVinQuery] = useState("");
+  const [vinSuggestionsOpen, setVinSuggestionsOpen] = useState(false);
   const [zoneFilterId, setZoneFilterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editing, setEditing] = useState<ScannedVehicle | null>(null);
   const [coLocated, setCoLocated] = useState<ScannedVehicle[]>([]);
 
   const [editorMode, setEditorMode] = useState<EditorMode>("idle");
   const [editingZone, setEditingZone] = useState<LotZone | null>(null);
-  const [editorTool, setEditorTool] = useState<ZoneEditorTool>("rectangle");
+  const [editorTool, setEditorTool] = useState<ZoneEditorTool>("highlight");
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
+  const [undoStack, setUndoStack] = useState<DraftEntry[][]>([]);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [namingZone, setNamingZone] = useState(false);
   const [colorEditZone, setColorEditZone] = useState<LotZone | null>(null);
+  const [draftColorOpen, setDraftColorOpen] = useState(false);
+  const [draftColors, setDraftColors] = useState(() => ({
+    fillColor: ZONE_COLOR_OPTIONS[0].fill,
+    strokeColor: ZONE_COLOR_OPTIONS[0].stroke,
+  }));
   const [locationReady, setLocationReady] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [lockedCamera, setLockedCamera] = useState<MobileLotView | null>(null);
+  const [cameraLocked, setCameraLocked] = useState(false);
+  const [viewportRegion, setViewportRegion] = useState<Region | null>(null);
 
   const refreshData = useCallback(async (showSpinner = false) => {
+    if (dealershipStatus !== "ready" || !activeDealership) return;
     const [cachedVehicles, cachedZones] = await Promise.all([
       readMobileCache<ScannedVehicle[]>(MOBILE_CACHE_KEYS.vehicles),
       readMobileCache<LotZone[]>(MOBILE_CACHE_KEYS.zones),
@@ -141,7 +300,7 @@ export default function MapScreen() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, []);
+  }, [activeDealership, dealershipStatus]);
 
   useFocusEffect(
     useCallback(() => {
@@ -163,27 +322,27 @@ export default function MapScreen() {
   );
 
   useEffect(() => {
+    void loadMobileLotView().then((view) => {
+      if (!view) return;
+      setLockedCamera(view);
+      setCameraLocked(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !lockedCamera) return;
+    mapRef.current?.animateCamera(lockedCamera as Camera, { duration: 0 });
+  }, [lockedCamera, mapReady]);
+
+  useEffect(() => {
     if (params.selectedId) {
       setSelectedId(params.selectedId);
     }
   }, [params.selectedId]);
 
-  const zoneById = useMemo(
-    () => new Map(zones.map((zone) => [zone.id, zone])),
-    [zones],
-  );
-
   const filtered = useMemo(() => {
     return vehicles.filter((v) => {
-      if (!matchesVehicleSearch(search, {
-        vin: v.vin,
-        vinSuffix: v.vinSuffix,
-        model: v.model,
-        color: v.color,
-      })) {
-        return false;
-      }
-
+      if (v.lotStatus !== "active" || !isValidMapCoordinate(v)) return false;
       if (!zoneFilterId) return true;
 
       return (
@@ -193,17 +352,20 @@ export default function MapScreen() {
         ) === zoneFilterId
       );
     });
-  }, [search, vehicles, zoneFilterId, zones]);
+  }, [vehicles, zoneFilterId, zones]);
 
-  const locationGroups = useMemo(
-    () => groupVehiclesByLocation(filtered),
-    [filtered],
-  );
-
-  const selected = useMemo(
-    () => filtered.find((v) => v.id === selectedId) ?? null,
+  const selectedVehicle = useMemo(
+    () => filtered.find((vehicle) => vehicle.id === selectedId) ?? null,
     [filtered, selectedId],
   );
+
+  const vinSuggestions = useMemo(() => {
+    const normalizedQuery = normalizeVinSearch(vinQuery);
+    if (!normalizedQuery) return [];
+    return vehicles
+      .filter((vehicle) => vehicleStartsWithVin(vehicle, normalizedQuery))
+      .slice(0, 4);
+  }, [vehicles, vinQuery]);
 
   const draftPolygons = useMemo(
     () => draftEntries.map(entryPolygon).filter((polygon) => polygon.length >= 3),
@@ -215,19 +377,41 @@ export default function MapScreen() {
     [activeEntryId, draftEntries],
   );
 
-  const initialRegion = vehicles[0]
-    ? {
-        latitude: vehicles[0].latitude,
-        longitude: vehicles[0].longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }
-    : {
-        latitude: 39.8283,
-        longitude: -98.5795,
-        latitudeDelta: 30,
-        longitudeDelta: 30,
-      };
+  const initialRegion = useMemo<Region>(
+    () =>
+      vehicles[0]
+        ? {
+            latitude: vehicles[0].latitude,
+            longitude: vehicles[0].longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          }
+        : {
+            latitude: 39.8283,
+            longitude: -98.5795,
+            latitudeDelta: 30,
+            longitudeDelta: 30,
+          },
+    [vehicles],
+  );
+
+  const markerClusters = useMemo(
+    () =>
+      clusterVehiclesByViewport(
+        filtered.filter((vehicle) => vehicle.id !== selectedId),
+        viewportRegion ?? initialRegion,
+        { width: viewportWidth, height: viewportHeight },
+        52,
+      ),
+    [
+      filtered,
+      initialRegion,
+      viewportHeight,
+      viewportRegion,
+      viewportWidth,
+      selectedId,
+    ],
+  );
 
   const editorActive = editorMode !== "idle";
 
@@ -240,6 +424,7 @@ export default function MapScreen() {
 
   function focusVehicle(vehicle: ScannedVehicle) {
     setSelectedId(vehicle.id);
+    if (cameraLocked) return;
     mapRef.current?.animateToRegion(
       {
         latitude: vehicle.latitude,
@@ -252,6 +437,10 @@ export default function MapScreen() {
   }
 
   async function centerOnMyLocation() {
+    if (cameraLocked) {
+      setError("Unlock the lot view before moving the map.");
+      return;
+    }
     try {
       let { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -287,101 +476,138 @@ export default function MapScreen() {
     }
   }
 
-  function handleMarkerPress(vehicle: ScannedVehicle) {
-    if (editorActive) return;
-    const nearby = findCoLocatedVehicles(filtered, vehicle);
-    if (nearby.length > 1) {
-      setCoLocated(nearby);
+  function selectVinSuggestion(vehicle: ScannedVehicle) {
+    if (cameraLocked) {
+      removeMobileLotView();
+      setLockedCamera(null);
+      setCameraLocked(false);
+    }
+    setZoneFilterId(null);
+    setSelectedId(vehicle.id);
+    setVinQuery("");
+    setVinSuggestionsOpen(false);
+    setError(null);
+    Keyboard.dismiss();
+    mapRef.current?.animateToRegion(
+      {
+        latitude: vehicle.latitude,
+        longitude: vehicle.longitude,
+        latitudeDelta: 0.00055,
+        longitudeDelta: 0.00055,
+      },
+      500,
+    );
+  }
+
+  async function toggleCameraLock() {
+    if (cameraLocked) {
+      removeMobileLotView();
+      setLockedCamera(null);
+      setCameraLocked(false);
+      setError(null);
       return;
     }
-    focusVehicle(vehicle);
+
+    const camera = await mapRef.current?.getCamera();
+    if (!camera) {
+      setError("The map is still loading.");
+      return;
+    }
+    const view: MobileLotView = {
+      center: camera.center,
+      heading: camera.heading,
+      pitch: camera.pitch,
+      zoom: camera.zoom ?? 15,
+      altitude: camera.altitude,
+    };
+    await saveMobileLotView(view);
+    setLockedCamera(view);
+    setCameraLocked(true);
+    setError(null);
+  }
+
+  function handleMarkerPress(group: ScannedVehicle[]) {
+    if (editorActive) return;
+    if (group.length === 1) {
+      focusVehicle(group[0]);
+      return;
+    }
+    setCoLocated(group);
   }
 
   function resetEditor() {
+    activePaintEntryIdRef.current = null;
+    activePaintPointsRef.current = [];
+    paintDidDragRef.current = false;
     setEditorMode("idle");
     setEditingZone(null);
-    setEditorTool("rectangle");
+    setEditorTool("highlight");
     setDraftEntries([]);
+    setUndoStack([]);
     setActiveEntryId(null);
     setNamingZone(false);
   }
 
   function startCreateZone() {
+    activePaintEntryIdRef.current = null;
+    activePaintPointsRef.current = [];
+    paintDidDragRef.current = false;
     setEditorMode("create");
     setEditingZone(null);
-    setEditorTool("rectangle");
+    setEditorTool("highlight");
     setDraftEntries([]);
+    setUndoStack([]);
     setActiveEntryId(null);
     setSelectedId(null);
+    const nextColor = ZONE_COLOR_OPTIONS[zones.length % ZONE_COLOR_OPTIONS.length];
+    setDraftColors({
+      fillColor: nextColor.fill,
+      strokeColor: nextColor.stroke,
+    });
   }
 
   function startEditZone(zone: LotZone) {
+    activePaintEntryIdRef.current = null;
+    activePaintPointsRef.current = [];
+    paintDidDragRef.current = false;
     setEditorMode("edit");
     setEditingZone(zone);
+    setDraftColors({
+      fillColor: zone.fillColor,
+      strokeColor: zone.strokeColor,
+    });
     setEditorTool("move");
+    setUndoStack([]);
     setDraftEntries(
-      zone.polygons.map((polygon) => ({
-        id: createEntryId(),
-        shape: null,
-        freehandPoints: polygon.map((point) => ({ ...point })),
-      })),
+      zone.polygons.map((polygon) => {
+        const shape = editableShapeFromPolygon(polygon);
+        return {
+          id: createEntryId(),
+          shape,
+          freehandPoints: shape ? null : polygon.map((point) => ({ ...point })),
+          strokePoints: null,
+        };
+      }),
     );
     setActiveEntryId(null);
     setSelectedId(null);
     setZoneFilterId(zone.id);
   }
 
-  function promptZoneFab() {
-    Alert.alert("Lot zones", "Add, edit, or remove a lot section.", [
-      { text: "Add section", onPress: startCreateZone },
-      ...(zones.length > 0
-        ? [
-            { text: "Edit section…", onPress: promptPickZoneToEdit },
-            { text: "Remove section…", onPress: promptPickZoneToRemove, style: "destructive" as const },
-          ]
-        : []),
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }
-
-  function promptPickZoneToRemove() {
-    if (zones.length === 1) {
-      confirmDeleteZone(zones[0]);
-      return;
-    }
-
-    Alert.alert("Remove which section?", "This only removes the map outline, not vehicles.", [
-      ...zones.slice(0, 5).map((zone) => ({
-        text: zone.name,
-        style: "destructive" as const,
-        onPress: () => confirmDeleteZone(zone),
-      })),
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }
-
-  function promptPickZoneToEdit() {
-    if (zones.length === 1) {
-      startEditZone(zones[0]);
-      return;
-    }
-
-    Alert.alert(
-      "Edit which section?",
-      "Pick a zone to reshape with rectangles, ovals, highlighter, or eraser.",
-      [
-        ...zones.slice(0, 5).map((zone) => ({
-          text: zone.name,
-          onPress: () => startEditZone(zone),
-        })),
-        { text: "Cancel", style: "cancel" },
-      ],
-    );
+  function focusZone(zone: LotZone) {
+    setZoneFilterId(zone.id);
+    if (cameraLocked) return;
+    const coordinates = zone.polygons.flat();
+    if (coordinates.length < 2) return;
+    mapRef.current?.fitToCoordinates(coordinates, {
+      edgePadding: { top: 120, right: 48, bottom: 180, left: 48 },
+      animated: true,
+    });
   }
 
   function promptZoneChipActions(zone: LotZone) {
     Alert.alert(zone.name, "Filter, edit, recolor, or remove this section.", [
-      { text: "Show vehicles", onPress: () => setZoneFilterId(zone.id) },
+      { text: "Show vehicles", onPress: () => focusZone(zone) },
       { text: "Change color", onPress: () => setColorEditZone(zone) },
       { text: "Edit boundaries", onPress: () => startEditZone(zone) },
       {
@@ -404,13 +630,90 @@ export default function MapScreen() {
   }
 
   function addShapeAt(coordinate: MapPoint, kind: ZoneShapeKind) {
+    captureUndo();
     const entry: DraftEntry = {
       id: createEntryId(),
       shape: createShapeAt(kind, coordinate),
       freehandPoints: null,
+      strokePoints: null,
     };
     setDraftEntries((current) => [...current, entry]);
     setActiveEntryId(entry.id);
+    setEditorTool("move");
+  }
+
+  function paintAt(coordinate: MapPoint) {
+    const previous = activePaintPointsRef.current.at(-1);
+    if (previous && distanceMeters(previous, coordinate) < 3) return;
+
+    let entryId = activePaintEntryIdRef.current;
+    if (!entryId) {
+      captureUndo();
+      entryId = createEntryId();
+      activePaintEntryIdRef.current = entryId;
+      activePaintPointsRef.current = [];
+    }
+
+    const strokePoints = [...activePaintPointsRef.current, coordinate];
+    activePaintPointsRef.current = strokePoints;
+    const freehandPoints = brushStrokeToPolygon(strokePoints, 12);
+
+    setDraftEntries((current) => {
+      const existingIndex = current.findIndex((entry) => entry.id === entryId);
+      const nextEntry: DraftEntry = {
+        id: entryId,
+        shape: null,
+        freehandPoints,
+        strokePoints,
+      };
+      if (existingIndex < 0) return [...current, nextEntry];
+      return current.map((entry) => (entry.id === entryId ? nextEntry : entry));
+    });
+  }
+
+  function eraseAt(coordinate: MapPoint) {
+    setDraftEntries((current) => {
+      let changed = false;
+      const next = current.flatMap((entry) => {
+        const polygon = entryPolygon(entry);
+        if (!entry.strokePoints) {
+          if (!pointIsInsidePolygon(coordinate, polygon)) return [entry];
+          changed = true;
+          return [];
+        }
+        const remaining = entry.strokePoints.filter(
+          (point) => distanceMeters(point, coordinate) > 10,
+        );
+        if (remaining.length === entry.strokePoints.length) return [entry];
+        changed = true;
+        if (remaining.length === 0) return [];
+        return [
+          {
+            ...entry,
+            strokePoints: remaining,
+            freehandPoints: brushStrokeToPolygon(remaining, 12),
+          },
+        ];
+      });
+      return changed ? next : current;
+    });
+  }
+
+  function captureUndo() {
+    setUndoStack((current) => [...current, draftEntries].slice(-30));
+  }
+
+  function undoLastChange() {
+    const previous = undoStack.at(-1);
+    if (!previous) return;
+    setDraftEntries(previous);
+    setUndoStack((current) => current.slice(0, -1));
+    setActiveEntryId((current) =>
+      current && previous.some((entry) => entry.id === current) ? current : null,
+    );
+    activePaintEntryIdRef.current = null;
+    activePaintPointsRef.current = [];
+    eraseGestureActiveRef.current = false;
   }
 
   function handleMapPress(event: MapPressEvent) {
@@ -419,21 +722,18 @@ export default function MapScreen() {
     const polygons = draftEntries.map(entryPolygon);
 
     if (editorTool === "eraser") {
-      const index = findNearestPolygonIndex(coordinate, polygons);
-      if (index < 0) return;
-      const entry = draftEntries[index];
-      setDraftEntries((current) => current.filter((item) => item.id !== entry.id));
-      if (activeEntryId === entry.id) setActiveEntryId(null);
+      eraseAt(coordinate);
       return;
     }
 
     if (editorTool === "highlight") {
-      const entry: DraftEntry = {
-        id: createEntryId(),
-        shape: null,
-        freehandPoints: circlePolygon(coordinate, HIGHLIGHT_RADIUS),
-      };
-      setDraftEntries((current) => [...current, entry]);
+      if (paintDidDragRef.current) {
+        paintDidDragRef.current = false;
+        return;
+      }
+      paintAt(coordinate);
+      activePaintEntryIdRef.current = null;
+      activePaintPointsRef.current = [];
       return;
     }
 
@@ -449,9 +749,20 @@ export default function MapScreen() {
     }
   }
 
+  function handleMapPanDrag(event: MapPressEvent) {
+    if (!editorActive) return;
+    const { coordinate } = event.nativeEvent;
+    if (editorTool === "highlight") {
+      paintDidDragRef.current = true;
+      paintAt(coordinate);
+    } else if (editorTool === "eraser") {
+      eraseAt(coordinate);
+    }
+  }
+
   function confirmSaveZone() {
     if (draftPolygons.length === 0) {
-      Alert.alert("Add a shape", "Place at least one rectangle, square, or oval first.");
+      Alert.alert("Add a section", "Paint a stroke or place at least one shape first.");
       return;
     }
 
@@ -459,6 +770,7 @@ export default function MapScreen() {
       void (async () => {
         try {
           await updateLotZone(editingZone.id, draftPolygons);
+          await updateLotZoneColors(editingZone.id, draftColors);
           setZones(await fetchLotZones());
           resetEditor();
         } catch (saveError) {
@@ -477,11 +789,13 @@ export default function MapScreen() {
 
     if (existing) {
       await updateLotZone(existing.id, [...existing.polygons, ...draftPolygons]);
+      await updateLotZoneColors(existing.id, draftColors);
     } else {
       await createLotZone({
         name,
         coordinates: draftPolygons[0],
         colorIndex: zones.length,
+        ...draftColors,
       });
 
       if (draftPolygons.length > 1) {
@@ -523,39 +837,34 @@ export default function MapScreen() {
     );
   }
 
-  async function handleSave(id: string, model: string, color: string) {
-    await updateScannedVehicle(id, { model, color });
-    setVehicles((current) =>
-      current.map((v) => (v.id === id ? { ...v, model, color } : v)),
-    );
-  }
-
-  function zoneLabelForVehicle(vehicle: ScannedVehicle): string | null {
-    const zoneId = findZoneForPoint(
-      { latitude: vehicle.latitude, longitude: vehicle.longitude },
-      zones,
-    );
-    return zoneId ? zoneById.get(zoneId)?.name ?? null : null;
-  }
-
   function updateEntryShape(entryId: string, shape: EditableShape) {
     setDraftEntries((current) =>
       current.map((entry) => (entry.id === entryId ? { ...entry, shape } : entry)),
     );
   }
 
-  function moveFreehandEntry(entryId: string, coordinate: MapPoint) {
+  function moveEntryCenter(entryId: string, center: MapPoint) {
     setDraftEntries((current) =>
       current.map((entry) => {
-        if (entry.id !== entryId || !entry.freehandPoints) return entry;
-        const center = polygonCenter(entry.freehandPoints);
+        if (entry.id !== entryId) return entry;
+        if (entry.shape) {
+          return { ...entry, shape: moveShapeCenter(entry.shape, center) };
+        }
+        const polygon = entry.freehandPoints ?? entry.strokePoints ?? [];
+        if (polygon.length === 0) return entry;
+        const previousCenter = polygonCenter(polygon);
         const delta = {
-          latitude: coordinate.latitude - center.latitude,
-          longitude: coordinate.longitude - center.longitude,
+          latitude: center.latitude - previousCenter.latitude,
+          longitude: center.longitude - previousCenter.longitude,
         };
         return {
           ...entry,
-          freehandPoints: translatePolygon(entry.freehandPoints, delta),
+          freehandPoints: entry.freehandPoints
+            ? translatePolygon(entry.freehandPoints, delta)
+            : null,
+          strokePoints: entry.strokePoints
+            ? translatePolygon(entry.strokePoints, delta)
+            : null,
         };
       }),
     );
@@ -569,64 +878,117 @@ export default function MapScreen() {
     );
   }
 
-  const selectedDisplay = selected ? getVehicleDisplay(selected) : null;
-  const selectedZoneName = selected ? zoneLabelForVehicle(selected) : null;
-
   return (
     <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
-        mapType="satellite"
+        mapType="hybrid"
         initialRegion={initialRegion}
+        onMapReady={() => setMapReady(true)}
+        onRegionChangeComplete={setViewportRegion}
         showsUserLocation={locationReady}
         showsMyLocationButton={Platform.OS === "ios" && locationReady && !editorActive}
+        scrollEnabled={!editorActive && !cameraLocked}
+        zoomEnabled={!editorActive && !cameraLocked}
+        rotateEnabled={false}
+        pitchEnabled={false}
+        onTouchStart={() => {
+          activePaintEntryIdRef.current = null;
+          activePaintPointsRef.current = [];
+          paintDidDragRef.current = false;
+          if (editorTool === "eraser" && !eraseGestureActiveRef.current) {
+            eraseGestureActiveRef.current = true;
+            captureUndo();
+          }
+        }}
+        onTouchEnd={() => {
+          activePaintEntryIdRef.current = null;
+          activePaintPointsRef.current = [];
+          eraseGestureActiveRef.current = false;
+        }}
+        onPanDrag={handleMapPanDrag}
         onPress={handleMapPress}
       >
         {zones.flatMap((zone) =>
-          zone.polygons.map((polygon, polygonIndex) => (
-            <Polygon
-              key={`${zone.id}-${polygonIndex}`}
-              coordinates={polygon}
-              fillColor={zone.fillColor}
-              strokeColor={zone.strokeColor}
-              strokeWidth={2}
-            />
-          )),
+          zone.polygons.map((polygon, polygonIndex) => {
+            if (isSelfIntersectingPolygon(polygon)) {
+              const centerline = recoverBrushCenterline(polygon);
+              if (centerline.length >= 2) {
+                return (
+                  <Polyline
+                    key={`${zone.id}-${polygonIndex}`}
+                    coordinates={centerline}
+                    strokeColor={colorWithOpacity(zone.strokeColor, 0.5)}
+                    strokeWidth={16}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                );
+              }
+            }
+            return (
+              <Polygon
+                key={`${zone.id}-${polygonIndex}`}
+                coordinates={polygon}
+                fillColor={colorWithOpacity(zone.strokeColor, 0.5)}
+                strokeColor="transparent"
+                strokeWidth={0}
+              />
+            );
+          }),
         )}
 
-        {draftPolygons.map((polygon, index) => (
-          <Polygon
-            key={`draft-${draftEntries[index]?.id ?? index}`}
-            coordinates={polygon}
-            fillColor="rgba(255, 255, 255, 0.22)"
-            strokeColor="#FFFFFF"
-            strokeWidth={2}
-          />
-        ))}
+        {draftEntries.map((entry) => {
+          if (entry.strokePoints) {
+            return (
+              <Polyline
+                key={`draft-stroke-${entry.id}`}
+                coordinates={entry.strokePoints}
+                strokeColor={colorWithOpacity(draftColors.strokeColor, 0.5)}
+                strokeWidth={16}
+                lineCap="round"
+                lineJoin="round"
+              />
+            );
+          }
+          const polygon = entryPolygon(entry);
+          if (polygon.length < 3) return null;
+          return (
+            <Polygon
+              key={`draft-${entry.id}`}
+              coordinates={polygon}
+              fillColor={draftColors.fillColor}
+              strokeColor={draftColors.strokeColor}
+              strokeWidth={entry.id === activeEntryId ? 4 : 2}
+              tappable
+              onPress={() => {
+                setActiveEntryId(entry.id);
+                setEditorTool("move");
+              }}
+            />
+          );
+        })}
 
-        {editorActive
+        {editorActive && editorTool === "move"
           ? draftEntries.map((entry) => {
               const polygon = entryPolygon(entry);
-              if (polygon.length < 3) return null;
-              const center = entry.shape
-                ? entry.shape.center
-                : polygonCenter(polygon);
+              if (polygon.length === 0) return null;
+              const center = entry.shape?.center ?? polygonCenter(polygon);
               return (
                 <Marker
                   key={`${entry.id}-center`}
                   coordinate={center}
                   draggable
                   anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
+                  tracksViewChanges
                   onPress={() => setActiveEntryId(entry.id)}
+                  onDragStart={captureUndo}
+                  onDrag={(event) => {
+                    moveEntryCenter(entry.id, event.nativeEvent.coordinate);
+                  }}
                   onDragEnd={(event) => {
-                    const coordinate = event.nativeEvent.coordinate;
-                    if (entry.shape) {
-                      updateEntryShape(entry.id, moveShapeCenter(entry.shape, coordinate));
-                    } else {
-                      moveFreehandEntry(entry.id, coordinate);
-                    }
+                    moveEntryCenter(entry.id, event.nativeEvent.coordinate);
                   }}
                 >
                   <ZoneHandleMarker />
@@ -635,23 +997,44 @@ export default function MapScreen() {
             })
           : null}
 
-        {editorActive && activeEntry?.shape
+        {editorActive &&
+        editorTool === "move" &&
+        activeEntry?.shape
           ? shapeHandlePositions(activeEntry.shape).map((handle, index) => (
               <Marker
                 key={`${activeEntry.id}-handle-${index}`}
                 coordinate={handle}
                 draggable
                 anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={false}
-                onDragEnd={(event) => {
+                tracksViewChanges
+                onDragStart={() => {
+                  captureUndo();
+                  transformShapeRef.current = activeEntry.shape;
+                }}
+                onDrag={(event) => {
+                  const startShape = transformShapeRef.current;
+                  if (!startShape) return;
                   updateEntryShape(
                     activeEntry.id,
                     resizeShapeFromHandle(
-                      activeEntry.shape!,
+                      startShape,
                       index,
                       event.nativeEvent.coordinate,
                     ),
                   );
+                }}
+                onDragEnd={(event) => {
+                  const startShape = transformShapeRef.current ?? activeEntry.shape;
+                  if (!startShape) return;
+                  updateEntryShape(
+                    activeEntry.id,
+                    resizeShapeFromHandle(
+                      startShape,
+                      index,
+                      event.nativeEvent.coordinate,
+                    ),
+                  );
+                  transformShapeRef.current = null;
                 }}
               >
                 <ZoneHandleMarker />
@@ -659,34 +1042,129 @@ export default function MapScreen() {
             ))
           : null}
 
+        {editorActive &&
+        editorTool === "move" &&
+        activeEntry?.shape
+          ? (() => {
+              const rotationHandle = rotationHandlePosition(activeEntry.shape);
+              const connector = rotationHandleConnector(activeEntry.shape);
+              if (!rotationHandle) return null;
+              return (
+                <>
+                  {connector ? (
+                    <Polyline
+                      key={`${activeEntry.id}-rotation-line`}
+                      coordinates={connector}
+                      strokeColor="#FFFFFF"
+                      strokeWidth={2}
+                    />
+                  ) : null}
+                  <Marker
+                    key={`${activeEntry.id}-rotation-visible`}
+                    coordinate={rotationHandle}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges
+                    zIndex={3}
+                  >
+                    <ZoneHandleMarker isRotation />
+                  </Marker>
+                  <Marker
+                    key={`${activeEntry.id}-rotation-drag`}
+                    coordinate={rotationHandle}
+                    draggable
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                    zIndex={4}
+                    onDragStart={() => {
+                      captureUndo();
+                      transformShapeRef.current = activeEntry.shape;
+                    }}
+                    onDrag={(event) => {
+                      const startShape = transformShapeRef.current;
+                      if (!startShape) return;
+                      updateEntryShape(
+                        activeEntry.id,
+                        rotateShapeToward(startShape, event.nativeEvent.coordinate),
+                      );
+                    }}
+                    onDragEnd={(event) => {
+                      const startShape = transformShapeRef.current ?? activeEntry.shape;
+                      if (!startShape) return;
+                      updateEntryShape(
+                        activeEntry.id,
+                        rotateShapeToward(
+                          startShape,
+                          event.nativeEvent.coordinate,
+                        ),
+                      );
+                      transformShapeRef.current = null;
+                    }}
+                  >
+                    <View style={styles.rotationTouchTarget} />
+                  </Marker>
+                </>
+              );
+            })()
+          : null}
+
         {!editorActive
-          ? Array.from(locationGroups.entries()).map(([key, group]) => {
-              const vehicle = group[0];
-              const count = group.length;
-              const isSelected = selectedId && group.some((v) => v.id === selectedId);
+          ? markerClusters.map((cluster) => {
+              const vehicle = cluster.vehicles[0];
+              const count = cluster.vehicles.length;
+              if (count > 1) {
+                return (
+                  <Marker
+                    key={cluster.key}
+                    coordinate={cluster.coordinate}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges
+                    onPress={() => handleMarkerPress(cluster.vehicles)}
+                  >
+                    <View style={styles.clusterMarker}>
+                      <Ionicons name="car" size={16} color={colors.onPrimary} />
+                      <Text style={styles.clusterCount}>{count}</Text>
+                    </View>
+                  </Marker>
+                );
+              }
+
               return (
                 <Marker
-                  key={key}
-                  coordinate={{
-                    latitude: vehicle.latitude,
-                    longitude: vehicle.longitude,
-                  }}
-                  pinColor={isSelected ? colors.mapPinSelected : colors.mapPin}
-                  title={
-                    count > 1
-                      ? `${count} vehicles`
-                      : formatVinPrimary(vehicle.vin, vehicle.vinSuffix)
-                  }
-                  description={
-                    count > 1
-                      ? "Tap to choose which vehicle"
-                      : formatVehicleTitle(getVehicleDisplay(vehicle))
-                  }
-                  onPress={() => handleMarkerPress(vehicle)}
+                  key={cluster.key}
+                  coordinate={cluster.coordinate}
+                  pinColor={vehiclePinColor(vehicle, false)}
+                  onPress={() => handleMarkerPress(cluster.vehicles)}
                 />
               );
             })
           : null}
+
+        {!editorActive && selectedVehicle ? (
+          <Marker
+            key={`selected:${selectedVehicle.id}`}
+            coordinate={{
+              latitude: selectedVehicle.latitude,
+              longitude: selectedVehicle.longitude,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges
+            zIndex={20}
+            onPress={() => focusVehicle(selectedVehicle)}
+          >
+            <View style={styles.selectedMarkerHalo}>
+              <View
+                style={[
+                  styles.selectedMarkerCore,
+                  {
+                    backgroundColor: vehiclePinColor(selectedVehicle, false),
+                  },
+                ]}
+              >
+                <Ionicons name="car" size={17} color={colors.onPrimary} />
+              </View>
+            </View>
+          </Marker>
+        ) : null}
       </MapView>
 
       <ProfileAvatarButton
@@ -694,119 +1172,206 @@ export default function MapScreen() {
       />
 
       <View style={[styles.topOverlay, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.topChipsRow}
-          pointerEvents="box-none"
-        >
-          <View style={styles.mapBadge}>
-            <Text style={styles.mapBadgeText}>
-              {vehicles.length} vehicle{vehicles.length === 1 ? "" : "s"}
-              {zoneFilterId ? ` · ${zoneById.get(zoneFilterId)?.name ?? "zone"}` : ""}
-            </Text>
-          </View>
-
-          <Chip
-            label="All zones"
-            selected={!zoneFilterId}
-            onPress={() => setZoneFilterId(null)}
-          />
-          {zones.map((zone) => (
-            <Pressable
-              key={zone.id}
-              onPress={() => promptZoneChipActions(zone)}
-            >
-              <Chip
-                label={zone.name}
-                selected={zoneFilterId === zone.id}
-                accentColor={zone.strokeColor}
+        {!editorActive ? (
+          <View style={styles.vinSearchWrap}>
+            <View style={styles.vinSearch}>
+              <Ionicons name="search" size={18} color={colors.textMuted} />
+              <TextInput
+                style={styles.vinInput}
+                value={vinQuery}
+                onChangeText={(value) => {
+                  setVinQuery(value);
+                  setVinSuggestionsOpen(Boolean(normalizeVinSearch(value)));
+                }}
+                onFocus={() => {
+                  if (normalizeVinSearch(vinQuery)) setVinSuggestionsOpen(true);
+                }}
+                placeholder="Search VIN, last 8, or last 6"
+                placeholderTextColor={colors.textMuted}
+                returnKeyType="search"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                accessibilityLabel="Search vehicles by VIN"
               />
-            </Pressable>
-          ))}
-          <View style={styles.chipSpacer} />
-        </ScrollView>
+              {vinQuery ? (
+                <Pressable
+                  onPress={() => {
+                    setVinQuery("");
+                    setVinSuggestionsOpen(false);
+                    setSelectedId(null);
+                  }}
+                  accessibilityLabel="Clear VIN search"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
 
-        {editorActive ? (
-          <View style={styles.drawToolbarWrap}>
-            <MapDrawToolbar
-              visible={editorActive}
-              tool={editorTool}
-              editing={editorMode === "edit"}
-              shapeCount={draftPolygons.length}
-              onSelectTool={setEditorTool}
-              onSave={confirmSaveZone}
-              onCancel={resetEditor}
-              onDeleteZone={
-                editorMode === "edit" && editingZone
-                  ? () => confirmDeleteZone(editingZone)
-                  : undefined
-              }
-            />
+            {vinSuggestionsOpen ? (
+              <View style={styles.vinSuggestions}>
+                {vinSuggestions.length > 0 ? (
+                  vinSuggestions.map((vehicle, index) => {
+                    const display = getVehicleDisplay(vehicle);
+                    const secondaryVin = formatVinSecondary(
+                      vehicle.vin,
+                      vehicle.vinSuffix,
+                    );
+                    return (
+                      <Pressable
+                        key={vehicle.id}
+                        style={[
+                          styles.vinSuggestion,
+                          index < vinSuggestions.length - 1 &&
+                            styles.vinSuggestionBorder,
+                        ]}
+                        onPress={() => selectVinSuggestion(vehicle)}
+                      >
+                        <View style={styles.vinSuggestionIcon}>
+                          <Ionicons name="car" size={18} color={colors.primary} />
+                        </View>
+                        <View style={styles.vinSuggestionCopy}>
+                          <Text style={styles.vinSuggestionVin} numberOfLines={1}>
+                            {formatVinPrimary(vehicle.vin, vehicle.vinSuffix)}
+                          </Text>
+                          <Text style={styles.vinSuggestionModel} numberOfLines={1}>
+                            {formatVehicleTitle(display)}
+                            {secondaryVin ? ` · ${secondaryVin}` : ""}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="locate"
+                          size={18}
+                          color={colors.primary}
+                        />
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <View style={styles.vinSuggestionEmpty}>
+                    <Text style={styles.vinSuggestionEmptyText}>
+                      No scanned VIN starts with this search.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
           </View>
+        ) : null}
+
+        {!editorActive ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.topChipsRow}
+            pointerEvents="box-none"
+          >
+            <Chip
+              label="All zones"
+              selected={!zoneFilterId}
+              onPress={() => setZoneFilterId(null)}
+            />
+            {zones.map((zone) => (
+              <Pressable
+                key={zone.id}
+                onPress={() => {
+                  if (zoneFilterId === zone.id && canManageMap) {
+                    promptZoneChipActions(zone);
+                  } else {
+                    focusZone(zone);
+                  }
+                }}
+                onLongPress={
+                  canManageMap ? () => promptZoneChipActions(zone) : undefined
+                }
+              >
+                <Chip
+                  label={zone.name}
+                  selected={zoneFilterId === zone.id}
+                  accentColor={zone.strokeColor}
+                />
+              </Pressable>
+            ))}
+            <View style={styles.chipSpacer} />
+          </ScrollView>
         ) : null}
 
         {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
       </View>
 
-      {selected && selectedDisplay && !editorActive ? (
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          style={[styles.selectedPanel, { top: insets.top + 108 }]}
+      {editorActive ? (
+        <View
+          style={[
+            styles.drawToolbarWrap,
+            {
+              top: insets.top + spacing.md,
+              bottom: 88 + insets.bottom,
+            },
+          ]}
+          pointerEvents="box-none"
         >
-          <Text style={styles.selectedVin}>
-            {formatVinPrimary(selected.vin, selected.vinSuffix)}
-          </Text>
-          <Text style={styles.selectedModel}>
-            {formatVehicleTitle(selectedDisplay)}
-          </Text>
-          <Text style={styles.selectedDetail}>
-            {selectedDisplay.color}
-            {selectedZoneName ? ` · ${selectedZoneName}` : ""}
-          </Text>
-          <Button
-            label="View scan log"
-            compact
-            onPress={() => openVehicle(selected.vinSuffix)}
+          <MapDrawToolbar
+            visible
+            tool={editorTool}
+            editing={editorMode === "edit"}
+            shapeCount={draftPolygons.length}
+            color={draftColors.strokeColor}
+            canUndo={undoStack.length > 0}
+            onSelectTool={setEditorTool}
+            onUndo={undoLastChange}
+            onColorPress={() => setDraftColorOpen(true)}
+            onSave={confirmSaveZone}
+            onCancel={resetEditor}
+            onDeleteZone={
+              editorMode === "edit" && editingZone
+                ? () => confirmDeleteZone(editingZone)
+                : undefined
+            }
           />
-        </MotiView>
+        </View>
       ) : null}
 
       {!editorActive ? (
         <>
-          <Pressable
-            style={[styles.locateFab, { bottom: 160 + insets.bottom }]}
-            onPress={() => void centerOnMyLocation()}
-            accessibilityLabel="Center map on my location"
-          >
-            <Ionicons
-              name="locate"
-              size={22}
-              color={locationReady ? colors.primary : colors.textMuted}
-            />
-          </Pressable>
-          <Pressable
-            style={[styles.fab, { bottom: 96 + insets.bottom }]}
-            onPress={promptZoneFab}
-            accessibilityLabel="Manage lot zones"
-          >
-            <Ionicons name="create-outline" size={24} color={colors.onPrimary} />
-          </Pressable>
+          <View style={[styles.mapControls, { bottom: 160 + insets.bottom }]}>
+            {canManageMap ? (
+              <>
+                <Pressable
+                  style={styles.mapControlButton}
+                  onPress={() => void toggleCameraLock()}
+                  accessibilityLabel={cameraLocked ? "Unlock lot view" : "Lock lot view"}
+                >
+                  <Ionicons
+                    name={cameraLocked ? "lock-closed" : "lock-open-outline"}
+                    size={20}
+                    color={cameraLocked ? colors.primary : colors.textSecondary}
+                  />
+                </Pressable>
+                <View style={styles.mapControlDivider} />
+              </>
+            ) : null}
+            <Pressable
+              style={styles.mapControlButton}
+              onPress={() => void centerOnMyLocation()}
+              accessibilityLabel="Center map on my location"
+            >
+              <Ionicons
+                name="locate"
+                size={21}
+                color={locationReady ? colors.primary : colors.textMuted}
+              />
+            </Pressable>
+          </View>
+          {canManageMap ? (
+            <Pressable
+              style={[styles.fab, { bottom: 96 + insets.bottom }]}
+              onPress={startCreateZone}
+              accessibilityLabel="Add lot section"
+            >
+              <Ionicons name="add" size={28} color={colors.onPrimary} />
+            </Pressable>
+          ) : null}
         </>
-      ) : null}
-
-      {!editorActive ? (
-        <MapVehicleSheet
-          vehicles={filtered}
-          selectedId={selectedId}
-          zoneLabelForVehicle={zoneLabelForVehicle}
-          search={search}
-          onSearchChange={setSearch}
-          onSelectVehicle={(vehicle) => setSelectedId(vehicle.id)}
-          onOpenVehicle={openVehicle}
-          onFocusVehicle={focusVehicle}
-        />
       ) : null}
 
       <CoLocatedVehiclesModal
@@ -817,13 +1382,6 @@ export default function MapScreen() {
           focusVehicle(vehicle);
           openVehicle(vehicle.vinSuffix);
         }}
-      />
-
-      <VehicleEditorModal
-        vehicle={editing}
-        visible={Boolean(editing)}
-        onClose={() => setEditing(null)}
-        onSave={handleSave}
       />
 
       <LotZoneNameModal
@@ -839,6 +1397,17 @@ export default function MapScreen() {
         onClose={() => setColorEditZone(null)}
         onSave={handleSaveZoneColor}
       />
+
+      <ZoneColorModal
+        zone={editingZone}
+        visible={draftColorOpen}
+        initialColor={draftColors.strokeColor}
+        sectionName={editingZone?.name ?? "New section"}
+        onClose={() => setDraftColorOpen(false)}
+        onSave={async (nextColors) => {
+          setDraftColors(nextColors);
+        }}
+      />
     </View>
   );
 }
@@ -851,11 +1420,92 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     gap: spacing.sm,
+    zIndex: 15,
   },
   profileButton: {
     position: "absolute",
     right: spacing.md,
     zIndex: 20,
+  },
+  vinSearchWrap: {
+    marginLeft: spacing.lg,
+    marginRight: 64,
+    zIndex: 30,
+  },
+  vinSearch: {
+    height: 44,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    ...shadow.card,
+  },
+  vinInput: {
+    flex: 1,
+    height: "100%",
+    color: colors.text,
+    fontSize: 15,
+    fontFamily: Platform.OS === "ios" ? "System" : undefined,
+    fontWeight: "400",
+    letterSpacing: 0,
+    textAlign: "left",
+  },
+  vinSuggestions: {
+    position: "absolute",
+    top: 50,
+    left: 0,
+    right: 0,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sheet,
+  },
+  vinSuggestion: {
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  vinSuggestionBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  vinSuggestionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primaryLight,
+  },
+  vinSuggestionCopy: { flex: 1, minWidth: 0 },
+  vinSuggestionVin: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  vinSuggestionModel: {
+    marginTop: 3,
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  vinSuggestionEmpty: {
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    justifyContent: "center",
+  },
+  vinSuggestionEmptyText: {
+    color: colors.textSecondary,
+    fontSize: 13,
   },
   topChipsRow: {
     flexDirection: "row",
@@ -867,19 +1517,17 @@ const styles = StyleSheet.create({
   chipSpacer: {
     width: spacing.sm,
   },
-  mapBadge: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.card,
-  },
-  mapBadgeText: { fontSize: 12, fontWeight: "700", color: colors.primaryDark },
   drawToolbarWrap: {
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.lg,
+    position: "absolute",
+    left: spacing.md,
+    width: 58,
+    zIndex: 30,
+  },
+  rotationTouchTarget: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,255,255,0.01)",
   },
   errorBanner: {
     marginHorizontal: spacing.lg,
@@ -890,25 +1538,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 13,
   },
-  selectedPanel: {
-    position: "absolute",
-    left: spacing.lg,
-    right: spacing.lg,
-    backgroundColor: colors.surface,
-    borderColor: colors.primary,
-    borderWidth: 2,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    ...shadow.sheet,
-  },
-  selectedVin: {
-    ...typography.vin,
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  selectedModel: { fontWeight: "700", marginTop: spacing.xs, fontSize: 16, color: colors.text },
-  selectedDetail: { color: colors.textSecondary, marginTop: 2, fontSize: 13, marginBottom: spacing.sm },
   fab: {
     position: "absolute",
     right: spacing.lg,
@@ -920,17 +1549,63 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     ...shadow.sheet,
   },
-  locateFab: {
+  mapControls: {
     position: "absolute",
     right: spacing.lg,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    ...shadow.card,
+  },
+  mapControlButton: {
+    width: 46,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
+  },
+  mapControlDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  clusterMarker: {
+    minWidth: 48,
+    height: 48,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    backgroundColor: colors.primary,
+    borderWidth: 3,
+    borderColor: colors.surface,
     ...shadow.card,
+  },
+  clusterCount: {
+    color: colors.onPrimary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  selectedMarkerHalo: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderWidth: 3,
+    borderColor: colors.surface,
+    ...shadow.card,
+  },
+  selectedMarkerCore: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surface,
   },
 });

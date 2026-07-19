@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AuditDial } from "@/components/tarmac/AuditDial";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -11,6 +11,8 @@ import { UploadStrip } from "@/components/tarmac/UploadStrip";
 import { ZoneBays } from "@/components/tarmac/ZoneBays";
 import "@/components/tarmac/dashboard.css";
 import { displayName, useAuth } from "@/lib/auth-context";
+import { useDealership } from "@/lib/dealership-context";
+import type { PermissionId } from "@/lib/permissions";
 import { isDemoLotEnabled, resetDemoLot } from "@/lib/demo-store";
 import {
   loadSelectedUploadId,
@@ -87,6 +89,15 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "map", label: "Map" },
   { id: "members", label: "Members" },
 ];
+
+const TAB_PERMISSIONS: Partial<Record<TabId, PermissionId>> = {
+  overview: "view_dashboard",
+  audit: "view_audit",
+  upload: "manage_uploads",
+  vehicles: "view_vehicles",
+  map: "view_map",
+  members: "view_members",
+};
 
 function IconGear() {
   return (
@@ -177,6 +188,16 @@ const TITLES: Record<TabId, { title: string; blurb: string }> = {
 
 export function TarmacDashboard() {
   const { user, signOut, isAdminBypass } = useAuth();
+  const {
+    activeDealership,
+    dealerships,
+    status: dealershipStatus,
+    error: dealershipError,
+    hasPermission,
+    createDealership,
+    refreshAccess,
+    switchDealership,
+  } = useDealership();
   const router = useRouter();
   const [tab, setTab] = useState<TabId>("overview");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -193,14 +214,33 @@ export function TarmacDashboard() {
   });
   const [mapSearchRequest, setMapSearchRequest] = useState(0);
   const selectedUploadIdRef = useRef<string | null>(null);
+  const [newDealershipName, setNewDealershipName] = useState("");
+  const [creatingDealership, setCreatingDealership] = useState(false);
+  const allowedTabs = useMemo(
+    () =>
+      TABS.filter((item) => {
+        const permission = TAB_PERMISSIONS[item.id];
+        if (!permission) return true;
+        if (
+          item.id === "members" &&
+          (hasPermission("manage_members") || hasPermission("manage_roles"))
+        ) {
+          return true;
+        }
+        return hasPermission(permission);
+      }),
+    [hasPermission],
+  );
 
   useEffect(() => {
-    const saved = loadSelectedUploadId();
+    if (!activeDealership) return;
+    const saved = loadSelectedUploadId(activeDealership.dealershipId);
     setSelectedUploadId(saved);
     selectedUploadIdRef.current = saved;
-  }, []);
+  }, [activeDealership]);
 
   const load = useCallback(async (options?: { silent?: boolean; uploadId?: string | null }) => {
+    if (!activeDealership && !isDemoLotEnabled()) return;
     const silent = options?.silent ?? false;
     const uploadId =
       options?.uploadId !== undefined ? options.uploadId : selectedUploadIdRef.current;
@@ -219,15 +259,29 @@ export function TarmacDashboard() {
       return;
     }
     try {
-      const next = await fetchDashboardData(uploadId);
+      let next = await fetchDashboardData(uploadId);
+      let resolvedUploadId = uploadId;
+      if (
+        uploadId &&
+        !next.uploadLog.some((upload) => upload.id === uploadId)
+      ) {
+        resolvedUploadId =
+          next.uploadLog.find((upload) => upload.isCurrent)?.id ??
+          next.uploadLog[0]?.id ??
+          null;
+        next = await fetchDashboardData(resolvedUploadId);
+      }
       setData(next);
       setDemoMode(isDemoLotEnabled());
       const active =
         next.uploadLog.find((u) => u.isCurrent)?.id ?? next.uploadLog[0]?.id ?? null;
-      if (active && !selectedUploadIdRef.current) {
-        selectedUploadIdRef.current = active;
-        setSelectedUploadId(active);
-        saveSelectedUploadId(active);
+      const selection = resolvedUploadId ?? active;
+      if (selection !== selectedUploadIdRef.current) {
+        selectedUploadIdRef.current = selection;
+        setSelectedUploadId(selection);
+        if (activeDealership) {
+          saveSelectedUploadId(activeDealership.dealershipId, selection);
+        }
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load dashboard.");
@@ -235,14 +289,24 @@ export function TarmacDashboard() {
       setLoading(false);
       setSyncing(false);
     }
-  }, []);
+  }, [activeDealership]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (
+      !["profile", "settings"].includes(tab) &&
+      !allowedTabs.some((item) => item.id === tab)
+    ) {
+      setTab(allowedTabs[0]?.id ?? "profile");
+    }
+  }, [allowedTabs, tab]);
+
   useDashboardRealtime({
     enabled: supabaseConfigured() && !isDemoLotEnabled(),
+    dealershipId: activeDealership?.dealershipId ?? null,
     onChange: () => void load({ silent: true }),
   });
 
@@ -258,7 +322,9 @@ export function TarmacDashboard() {
   async function handleSelectUpload(uploadId: string) {
     selectedUploadIdRef.current = uploadId;
     setSelectedUploadId(uploadId);
-    saveSelectedUploadId(uploadId);
+    if (activeDealership) {
+      saveSelectedUploadId(activeDealership.dealershipId, uploadId);
+    }
     await load({ silent: true, uploadId });
   }
 
@@ -275,6 +341,56 @@ export function TarmacDashboard() {
   });
   const page = TITLES[tab];
 
+  if (dealershipStatus === "loading") {
+    return <div className="desk-loading">Loading dealership access…</div>;
+  }
+
+  if (!activeDealership && !isAdminBypass) {
+    const ownerIntent = user?.user_metadata?.account_type === "owner_gm";
+    return (
+      <main className="desk-setup">
+        <BrandLogo size={34} priority />
+        <h1>{ownerIntent ? "Create your dealership" : "Waiting for team access"}</h1>
+        <p>
+          {dealershipStatus === "error"
+            ? dealershipError ?? "Could not load dealership access."
+            : ownerIntent
+            ? "Your dealership keeps inventory, scans, maps, and employees isolated from every other account."
+            : "Share the 9-digit Auditur ID in your profile with your owner or GM, then refresh this page."}
+        </p>
+        {dealershipStatus === "error" ? (
+          <button
+            className="ui-btn ui-btn-primary"
+            onClick={() => void refreshAccess()}
+          >
+            Retry
+          </button>
+        ) : ownerIntent ? (
+          <>
+            <input
+              className="desk-input"
+              placeholder="Dealership name"
+              value={newDealershipName}
+              onChange={(event) => setNewDealershipName(event.target.value)}
+            />
+            <button
+              className="ui-btn ui-btn-primary"
+              disabled={creatingDealership || !newDealershipName.trim()}
+              onClick={() => {
+                setCreatingDealership(true);
+                void createDealership(newDealershipName).finally(() =>
+                  setCreatingDealership(false),
+                );
+              }}
+            >
+              {creatingDealership ? "Creating…" : "Create dealership"}
+            </button>
+          </>
+        ) : null}
+      </main>
+    );
+  }
+
   return (
     <div className="desk">
       <aside className="desk-sidebar">
@@ -286,7 +402,7 @@ export function TarmacDashboard() {
           </div>
         </div>
         <nav className="desk-nav" aria-label="Dashboard sections">
-          {TABS.map((item) => (
+          {allowedTabs.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -339,6 +455,20 @@ export function TarmacDashboard() {
             </p>
           </div>
           <div className="desk-top-actions">
+            {dealerships.length > 1 ? (
+              <select
+                className="desk-select"
+                aria-label="Active dealership"
+                value={activeDealership?.dealershipId ?? ""}
+                onChange={(event) => void switchDealership(event.target.value)}
+              >
+                {dealerships.map((dealership) => (
+                  <option key={dealership.dealershipId} value={dealership.dealershipId}>
+                    {dealership.dealershipName}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {tab === "audit" || tab === "vehicles" || tab === "map" ? (
               <label className="desk-top-search">
                 <svg viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden>
@@ -456,7 +586,7 @@ export function TarmacDashboard() {
                   uploads={data?.uploadLog ?? []}
                   onChanged={refresh}
                   selectedUploadId={selectedUploadId}
-                  onSelectUpload={(id) => void handleSelectUpload(id)}
+                  onSelectUpload={handleSelectUpload}
                 />
               ) : null}
 

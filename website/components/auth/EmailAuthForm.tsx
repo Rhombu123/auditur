@@ -2,9 +2,13 @@
 
 import { useState } from "react";
 
-import type { AccountType } from "@/lib/account-ids";
-
+import {
+  TurnstileWidget,
+  turnstileConfigured,
+} from "@/components/auth/TurnstileWidget";
 import "./auth.css";
+
+export type AccountType = "owner_gm" | "employee";
 
 export type SignupPayload = {
   fullName: string;
@@ -13,7 +17,12 @@ export type SignupPayload = {
 
 type Props = {
   mode: "login" | "signup";
-  onSubmit: (email: string, password: string, signup?: SignupPayload) => Promise<void>;
+  onSubmit: (
+    email: string,
+    password: string,
+    signup?: SignupPayload,
+    captchaToken?: string,
+  ) => Promise<void>;
 };
 
 function MailIcon() {
@@ -44,13 +53,30 @@ function LockIcon() {
   );
 }
 
+function EyeIcon({ hidden }: { hidden: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path
+        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.5" />
+      {hidden ? <path d="M4 4l16 16" strokeLinecap="round" /> : null}
+    </svg>
+  );
+}
+
 export function EmailAuthForm({ mode, onSubmit }: Props) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
 
   async function handleSubmit() {
     setError(null);
@@ -59,20 +85,30 @@ export function EmailAuthForm({ mode, onSubmit }: Props) {
       if (mode === "signup") {
         if (!fullName.trim()) throw new Error("Enter your name.");
         if (!accountType) throw new Error("Choose whether you are an owner/GM or an employee.");
-        await onSubmit(email, password, { fullName, accountType });
+        await onSubmit(
+          email,
+          password,
+          { fullName, accountType },
+          captchaToken ?? undefined,
+        );
       } else {
-        await onSubmit(email, password);
+        await onSubmit(email, password, undefined, captchaToken ?? undefined);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Authentication failed.");
     } finally {
+      setCaptchaToken(null);
+      setCaptchaAttempt((value) => value + 1);
       setLoading(false);
     }
   }
 
   const canSubmit =
     email.includes("@") &&
-    password.length >= 8 &&
+    (mode === "login" || password.length >= 12) &&
+    (process.env.NODE_ENV === "development"
+      ? !turnstileConfigured || Boolean(captchaToken)
+      : turnstileConfigured && Boolean(captchaToken)) &&
     (mode === "login" || (Boolean(fullName.trim()) && accountType !== null));
 
   return (
@@ -159,16 +195,30 @@ export function EmailAuthForm({ mode, onSubmit }: Props) {
                 <LockIcon />
                 <input
                   id="password"
-                  className="auth-input"
-                  type="password"
+                  className="auth-input auth-password-input"
+                  type={passwordVisible ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="At least 8 characters"
-                  minLength={8}
+                  placeholder={
+                    mode === "signup"
+                      ? "12+ chars, mixed case, number, symbol"
+                      : "Password"
+                  }
+                  minLength={mode === "signup" ? 12 : 1}
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
                 />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                  aria-label={passwordVisible ? "Hide password" : "Show password"}
+                >
+                  <EyeIcon hidden={passwordVisible} />
+                </button>
               </div>
             </div>
+
+            <TurnstileWidget key={captchaAttempt} onToken={setCaptchaToken} />
 
             <button
               type="button"

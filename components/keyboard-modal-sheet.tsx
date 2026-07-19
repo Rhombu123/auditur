@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MotiView } from "moti";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -33,35 +34,59 @@ export function KeyboardModalSheet({
   const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? spacing.sm : 0}
+        keyboardVerticalOffset={0}
       >
-        <Pressable
-          style={[styles.backdrop, centered ? styles.backdropCentered : styles.backdropBottom]}
-          onPress={onClose}
+        <View
+          style={[
+            styles.backdrop,
+            centered ? styles.backdropCentered : styles.backdropBottom,
+          ]}
         >
           <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            accessibilityLabel="Close popup"
+          />
+          <MotiView
+            from={{ opacity: 0, scale: 0.97, translateY: 10 }}
+            animate={{ opacity: 1, scale: 1, translateY: 0 }}
+            transition={{
+              type: "timing",
+              duration: 220,
+              delay: 90,
+            }}
             style={[
               centered ? styles.sheetCentered : styles.sheetBottom,
               !centered && { paddingBottom: Math.max(insets.bottom, spacing.xl) },
               sheetStyle,
             ]}
-            onPress={(event) => event.stopPropagation()}
           >
             <ScrollView
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              automaticallyAdjustKeyboardInsets={false}
               bounces={false}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={centered ? styles.centeredContent : undefined}
+              contentContainerStyle={[
+                styles.content,
+                centered && styles.centeredContent,
+              ]}
             >
               {!centered ? <View style={styles.handle} /> : null}
               {children}
             </ScrollView>
-          </Pressable>
-        </Pressable>
+          </MotiView>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -78,29 +103,38 @@ const styles = StyleSheet.create({
   },
   backdropCentered: {
     justifyContent: "center",
-    padding: spacing.xxl,
+    padding: spacing.lg,
   },
   sheetBottom: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
-    padding: spacing.xl,
-    maxHeight: "92%",
+    paddingHorizontal: spacing.xxl,
+    maxHeight: "94%",
+    minHeight: 220,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
     ...shadow.sheet,
   },
   sheetCentered: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 420,
     alignSelf: "center",
     backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    maxHeight: "90%",
+    borderRadius: radius.sheet,
+    paddingHorizontal: spacing.xxl,
+    maxHeight: "92%",
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
     ...shadow.sheet,
+  },
+  content: {
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxl,
   },
   centeredContent: {
     alignItems: "stretch",
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   handle: {
     alignSelf: "center",
@@ -108,6 +142,6 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: radius.pill,
     backgroundColor: colors.borderStrong,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
 });

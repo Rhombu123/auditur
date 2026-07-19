@@ -44,3 +44,11 @@ export function formatVehicleTitle(display: VehicleDisplay): string {
   }
   return display.name;
 }
+
+export function visibleVehicleColor(color: string): string | null {
+  const normalized = color.trim();
+  if (!normalized || /^(unknown|n\/?a|not specified)$/i.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}

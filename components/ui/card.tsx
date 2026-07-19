@@ -1,3 +1,5 @@
+import { MotiView } from "moti";
+import { useState } from "react";
 import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 
 import { colors, radius, shadow, spacing } from "@/constants/theme";
@@ -12,6 +14,7 @@ type Props = {
 };
 
 export function Card({ children, active, inactive, onPress, onLongPress, style }: Props) {
+  const [pressed, setPressed] = useState(false);
   const cardStyle = [
     styles.card,
     active && styles.cardActive,
@@ -22,11 +25,18 @@ export function Card({ children, active, inactive, onPress, onLongPress, style }
   if (onPress || onLongPress) {
     return (
       <Pressable
-        style={({ pressed }) => [cardStyle, pressed && styles.pressed]}
         onPress={onPress}
         onLongPress={onLongPress}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
       >
-        {children}
+        <MotiView
+          animate={{ opacity: pressed ? 0.93 : 1, scale: pressed ? 0.985 : 1 }}
+          transition={{ type: "timing", duration: 160 }}
+          style={cardStyle}
+        >
+          {children}
+        </MotiView>
       </Pressable>
     );
   }
@@ -56,5 +66,4 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  pressed: { opacity: 0.92 },
 });

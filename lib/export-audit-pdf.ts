@@ -1,10 +1,14 @@
 import { Platform, Share } from "react-native";
 
-const exportApiUrl =
+import { requireApiDealershipId } from "@/lib/active-dealership";
+import { supabase } from "@/lib/supabase";
+
+const configuredExportApiUrl =
   process.env.EXPO_PUBLIC_EXPORT_API_URL ??
   (process.env.EXPO_PUBLIC_UPLOAD_API_URL ??
-    "https://auditur.vercel.app/api/upload"
-  ).replace(/\/upload\/?$/, "/export-audit");
+    "https://auditur.vercel.app/api/upload/"
+  ).replace(/\/upload\/?$/, "/export-audit/");
+const exportApiUrl = `${configuredExportApiUrl.replace(/\/$/, "")}/`;
 
 async function sharePdf(uri: string): Promise<void> {
   try {
@@ -30,13 +34,24 @@ async function sharePdf(uri: string): Promise<void> {
   );
 }
 
-export async function exportHighlightedAuditPdf(): Promise<void> {
+export async function exportHighlightedAuditPdf(uploadId?: string): Promise<void> {
   const FileSystem = await import("expo-file-system/legacy");
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in again to export this audit.");
 
   const fileName = `audit-highlighted-${Date.now()}.pdf`;
   const uri = `${FileSystem.cacheDirectory ?? ""}${fileName}`;
 
-  const download = await FileSystem.downloadAsync(exportApiUrl, uri);
+  const url = uploadId
+    ? `${exportApiUrl}?uploadId=${encodeURIComponent(uploadId)}`
+    : exportApiUrl;
+  const download = await FileSystem.downloadAsync(url, uri, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Auditur-Dealership-ID": requireApiDealershipId(),
+    },
+  });
   if (download.status < 200 || download.status >= 300) {
     let message = "Export failed.";
     try {
@@ -47,6 +62,17 @@ export async function exportHighlightedAuditPdf(): Promise<void> {
       // ignore parse errors
     }
     throw new Error(message);
+  }
+
+  const contentType =
+    Object.entries(download.headers).find(
+      ([key]) => key.toLowerCase() === "content-type",
+    )?.[1] ?? "";
+  if (!contentType.toLowerCase().includes("application/pdf")) {
+    await FileSystem.deleteAsync(download.uri, { idempotent: true });
+    throw new Error(
+      "The export server did not return a PDF. Check the configured Auditur API URL and try again.",
+    );
   }
 
   await sharePdf(download.uri);

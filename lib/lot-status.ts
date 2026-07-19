@@ -9,6 +9,8 @@ export function lotStatusLabel(status: LotStatus): string {
       return "Sold";
     case "auctioned":
       return "Auctioned";
+    case "removed":
+      return "Removed";
   }
 }
 
@@ -22,15 +24,21 @@ export function lotStatusBadgeStyle(status: LotStatus) {
       };
     case "sold":
       return {
-        backgroundColor: colors.dangerLight,
-        color: colors.danger,
-        borderColor: colors.dangerBorder,
+        backgroundColor: colors.warningLight,
+        color: colors.warning,
+        borderColor: colors.warningBorder,
       };
     case "auctioned":
       return {
         backgroundColor: colors.warningLight,
         color: colors.warning,
         borderColor: colors.warningBorder,
+      };
+    case "removed":
+      return {
+        backgroundColor: colors.dangerLight,
+        color: colors.danger,
+        borderColor: colors.dangerBorder,
       };
   }
 }

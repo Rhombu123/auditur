@@ -113,6 +113,7 @@ export default function LotMapClient({
   const mapRef = useRef<MapLibreMap | null>(null);
   const navControlRef = useRef<NavigationControl | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
+  const searchMarkerRef = useRef<Marker | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const drawingRef = useRef(drawing);
   const drawToolRef = useRef(drawTool);
@@ -127,6 +128,9 @@ export default function LotMapClient({
   const [mapReady, setMapReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressSearching, setAddressSearching] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   drawingRef.current = drawing;
   drawToolRef.current = drawTool;
@@ -136,6 +140,62 @@ export default function LotMapClient({
   vehiclesRef.current = vehicles;
   onDraftChangeRef.current = onDraftChange;
   onApiReadyRef.current = onApiReady;
+
+  useEffect(() => {
+    return () => {
+      searchMarkerRef.current?.remove();
+    };
+  }, []);
+
+  async function searchAddress(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = addressQuery.trim();
+    const map = mapRef.current;
+    if (!query || !map || addressSearching) return;
+
+    setAddressSearching(true);
+    setAddressError(null);
+    try {
+      const params = new URLSearchParams({
+        SingleLine: query,
+        f: "json",
+        outFields: "Match_addr",
+        maxLocations: "1",
+      });
+      const response = await fetch(
+        `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?${params}`,
+      );
+      if (!response.ok) throw new Error("Address search is unavailable.");
+      const result = (await response.json()) as {
+        candidates?: { address?: string; location?: { x: number; y: number } }[];
+      };
+      const candidate = result.candidates?.[0];
+      if (!candidate?.location) {
+        setAddressError("Address not found. Add a city, state, or ZIP code.");
+        return;
+      }
+
+      const maplibregl = (await import("maplibre-gl")).default;
+      searchMarkerRef.current?.remove();
+      searchMarkerRef.current = new maplibregl.Marker({ color: "#F59E0B" })
+        .setLngLat([candidate.location.x, candidate.location.y])
+        .setPopup(
+          new maplibregl.Popup({ offset: 18 }).setText(candidate.address || query),
+        )
+        .addTo(map);
+      map.flyTo({
+        center: [candidate.location.x, candidate.location.y],
+        zoom: 17,
+        duration: 850,
+      });
+    } catch (searchError) {
+      setAddressError(
+        searchError instanceof Error ? searchError.message : "Could not search that address.",
+      );
+    } finally {
+      setAddressSearching(false);
+    }
+  }
 
   useEffect(() => {
     const el = containerRef.current;
@@ -649,6 +709,65 @@ export default function LotMapClient({
         style={{ height: "100%", width: "100%", minHeight: 360, background: "#0b1220" }}
         role="presentation"
       />
+      <form
+        onSubmit={(event) => void searchAddress(event)}
+        style={{
+          position: "absolute",
+          left: 12,
+          top: 12,
+          width: "min(22rem, calc(100% - 5.5rem))",
+          display: "flex",
+          gap: 6,
+          padding: 6,
+          border: "1px solid rgba(203, 213, 225, 0.9)",
+          borderRadius: 10,
+          background: "rgba(255, 255, 255, 0.96)",
+          boxShadow: "0 4px 14px rgba(15, 23, 42, 0.16)",
+        }}
+      >
+        <input
+          value={addressQuery}
+          onChange={(event) => setAddressQuery(event.target.value)}
+          placeholder="Search an address"
+          aria-label="Search map by address"
+          style={{
+            minWidth: 0,
+            flex: 1,
+            border: 0,
+            outline: 0,
+            padding: "0.4rem 0.5rem",
+            background: "transparent",
+            color: "#0f172a",
+            font: "inherit",
+            fontSize: 13,
+          }}
+        />
+        <button
+          type="submit"
+          disabled={!addressQuery.trim() || addressSearching}
+          className="ui-btn ui-btn-primary"
+          style={{ minHeight: 34, padding: "0 0.75rem" }}
+        >
+          {addressSearching ? "Finding…" : "Find"}
+        </button>
+        {addressError ? (
+          <span
+            role="alert"
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "calc(100% + 6px)",
+              padding: "0.4rem 0.55rem",
+              borderRadius: 7,
+              background: "rgba(127, 29, 29, 0.92)",
+              color: "#fff",
+              fontSize: 11,
+            }}
+          >
+            {addressError}
+          </span>
+        ) : null}
+      </form>
       {locationError ? (
         <p
           style={{

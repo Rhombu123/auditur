@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +13,7 @@ import {
 
 import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorText, Screen, ScreenSubtitle } from "@/components/ui/screen";
+import { SkeletonCards } from "@/components/ui/skeleton-card";
 import { VinSearchInput } from "@/components/vin-search-input";
 import { colors, radius, shadow, spacing, typography } from "@/constants/theme";
 import {
@@ -21,75 +23,88 @@ import {
   writeMobileCache,
 } from "@/lib/mobile-cache";
 import {
-  deleteInventoryUpload,
+  archiveInventoryUpload,
   fetchInventory,
-  fetchUploadHistory,
-  uploadInventoryPdf,
+  uploadInventoryFile,
 } from "@/lib/mobile-api";
-import type { InventoryItem, InventoryUploadLog } from "@/lib/types";
+import type {
+  ImportFileFormat,
+  InventoryItem,
+  InventorySnapshot,
+} from "@/lib/types";
 import { matchesVehicleSearch } from "@/lib/vin-search";
 
-function formatUploadedAt(value: string): string {
-  return new Date(value).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function visibleUploadError(error: unknown, fallback: string): string | null {
+  const message = error instanceof Error ? error.message : fallback;
+  return message === "Lot data is unavailable right now." ? null : message;
+}
+
+function formatSource(sourceSystem: string | undefined): string {
+  if (!sourceSystem || sourceSystem === "unknown") return "Unknown source";
+  return sourceSystem
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default function UploadScreen() {
+  const router = useRouter();
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [uploadLog, setUploadLog] = useState<InventoryUploadLog[]>([]);
+  const [fileFormat, setFileFormat] = useState<ImportFileFormat | null>(null);
+  const [sourceSystem, setSourceSystem] = useState<string | undefined>();
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadInventory = useCallback(async () => {
-    const [cachedInventory, cachedHistory] = await Promise.all([
-      readMobileCache<{ fileName: string; items: InventoryItem[] } | null>(
-        MOBILE_CACHE_KEYS.inventory,
-      ),
-      readMobileCache<InventoryUploadLog[]>(MOBILE_CACHE_KEYS.uploadHistory),
-    ]);
+    const cachedInventory =
+      await readMobileCache<InventorySnapshot | null>(MOBILE_CACHE_KEYS.inventory);
     if (cachedInventory !== null) {
+      setActiveUploadId(cachedInventory?.id ?? null);
       setFileName(cachedInventory?.fileName ?? null);
+      setFileFormat(cachedInventory?.fileFormat ?? null);
+      setSourceSystem(cachedInventory?.sourceSystem);
+      setWarnings(cachedInventory?.warnings ?? []);
       setItems(cachedInventory?.items ?? []);
     }
-    if (cachedHistory) setUploadLog(cachedHistory);
-    setLoading(cachedInventory === null && !cachedHistory);
+    setLoading(cachedInventory === null);
     setError(null);
     try {
-      const [inventory, history] = await Promise.all([
-        fetchInventory(),
-        fetchUploadHistory(),
-      ]);
-      setUploadLog(history);
-      await Promise.all([
-        writeMobileCache(MOBILE_CACHE_KEYS.inventory, inventory),
-        writeMobileCache(MOBILE_CACHE_KEYS.uploadHistory, history),
-      ]);
+      const inventory = await fetchInventory();
+      await writeMobileCache(MOBILE_CACHE_KEYS.inventory, inventory);
       if (inventory) {
+        setActiveUploadId(inventory.id ?? null);
         setFileName(inventory.fileName);
+        setFileFormat(inventory.fileFormat ?? null);
+        setSourceSystem(inventory.sourceSystem);
+        setWarnings(inventory.warnings ?? []);
         setItems(inventory.items);
       } else {
+        setActiveUploadId(null);
         setFileName(null);
+        setFileFormat(null);
+        setSourceSystem(undefined);
+        setWarnings([]);
         setItems([]);
       }
     } catch (loadError) {
-      if (cachedInventory === null && !cachedHistory) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load uploads.");
+      if (cachedInventory === null) {
+        setError(visibleUploadError(loadError, "Failed to load uploads."));
       }
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void loadInventory();
-  }, [loadInventory]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadInventory();
+    }, [loadInventory]),
+  );
 
   const filteredItems = useMemo(() => {
     return items.filter((item) =>
@@ -102,11 +117,17 @@ export default function UploadScreen() {
     );
   }, [items, search]);
 
-  async function pickPdf() {
+  async function pickAuditFile() {
     setError(null);
     const DocumentPicker = await import("expo-document-picker");
     const result = await DocumentPicker.getDocumentAsync({
-      type: "application/pdf",
+      type: [
+        "application/pdf",
+        "text/csv",
+        "application/csv",
+        "application/vnd.ms-excel",
+        "text/comma-separated-values",
+      ],
       copyToCacheDirectory: true,
     });
 
@@ -116,27 +137,28 @@ export default function UploadScreen() {
     setUploading(true);
 
     try {
-      const inventory = await uploadInventoryPdf(asset.uri, asset.name);
+      const inventory = await uploadInventoryFile(asset.uri, asset.name, asset.mimeType);
+      setActiveUploadId(inventory.uploadId ?? null);
       setFileName(inventory.fileName);
+      setFileFormat(inventory.fileFormat);
+      setSourceSystem(inventory.sourceSystem);
+      setWarnings(inventory.warnings);
       setItems(inventory.items);
       setSearch("");
       await clearMobileCache(MOBILE_CACHE_KEYS.audit);
       await loadInventory();
     } catch (uploadError) {
-      setError(
-        uploadError instanceof Error ? uploadError.message : "Upload failed.",
-      );
+      setError(visibleUploadError(uploadError, "Upload failed."));
     } finally {
       setUploading(false);
     }
   }
 
-  function confirmDeleteUpload(entry: InventoryUploadLog) {
+  function confirmDeleteCurrentUpload() {
+    if (!activeUploadId || !fileName) return;
     Alert.alert(
-      "Remove this PDF?",
-      `"${entry.fileName}" will be deleted from your upload log${
-        entry.isCurrent ? " and is currently active for audits" : ""
-      }. Scanned vehicles are not deleted.`,
+      "Remove current audit file?",
+      `"${fileName}" will be removed from the active audit but kept in audit file history. You can permanently delete it from the history screen.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -145,8 +167,12 @@ export default function UploadScreen() {
           onPress: () => {
             void (async () => {
               try {
-                await deleteInventoryUpload(entry.id);
-                await clearMobileCache(MOBILE_CACHE_KEYS.audit);
+                await archiveInventoryUpload(activeUploadId);
+                await Promise.all([
+                  clearMobileCache(MOBILE_CACHE_KEYS.audit),
+                  clearMobileCache(MOBILE_CACHE_KEYS.inventory),
+                  clearMobileCache(MOBILE_CACHE_KEYS.uploadHistory),
+                ]);
                 await loadInventory();
               } catch (deleteError) {
                 setError(
@@ -163,13 +189,11 @@ export default function UploadScreen() {
   return (
     <Screen style={styles.container}>
       <ScreenSubtitle>
-        Upload your dealership price list PDF. We extract VIN6, model, color, and
-        days on lot.
+        Upload a PDF or CSV audit file. We normalize VINs and available vehicle details.
       </ScreenSubtitle>
-
       <Pressable
         style={[styles.uploadCard, uploading && styles.uploadCardDisabled]}
-        onPress={() => void pickPdf()}
+        onPress={() => void pickAuditFile()}
         disabled={uploading}
       >
         <View style={styles.uploadIcon}>
@@ -180,14 +204,33 @@ export default function UploadScreen() {
           )}
         </View>
         <View style={styles.uploadCopy}>
-          <Text style={styles.uploadTitle}>
-            {uploading ? "Processing PDF…" : "Choose price list PDF"}
+          <Text style={styles.uploadTitle} numberOfLines={1}>
+            {uploading
+              ? "Processing audit file…"
+              : fileName
+                ? fileName
+                : "Choose Audit File"}
           </Text>
           <Text style={styles.uploadHint}>
-            Tap to select a file from your device
+            {fileName
+              ? "Tap to choose a different PDF or CSV"
+              : "Select a PDF or CSV from your device"}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        {fileName && activeUploadId ? (
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              confirmDeleteCurrentUpload();
+            }}
+            accessibilityLabel={`Delete ${fileName}`}
+            style={styles.currentDeleteBtn}
+          >
+            <Ionicons name="trash-outline" size={21} color={colors.danger} />
+          </Pressable>
+        ) : (
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        )}
       </Pressable>
 
       {error ? <ErrorText>{error}</ErrorText> : null}
@@ -196,39 +239,40 @@ export default function UploadScreen() {
         <View style={styles.metaRow}>
           <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
           <Text style={styles.meta}>
-            Active: {fileName} · {items.length} vehicles
+            {items.length} vehicles · {(fileFormat ?? "pdf").toUpperCase()} · {formatSource(sourceSystem)}
           </Text>
         </View>
       ) : null}
 
-      {uploadLog.length > 0 ? (
-        <View style={styles.logSection}>
-          <Text style={styles.logTitle}>PDF upload log</Text>
-          {uploadLog.map((entry) => (
-            <Card key={entry.id} style={styles.logCard}>
-              <View style={styles.logRow}>
-                <View style={styles.logCopy}>
-                  <Text style={styles.logFile} numberOfLines={1}>
-                    {entry.fileName}
-                  </Text>
-                  <Text style={styles.logMeta}>
-                    {formatUploadedAt(entry.uploadedAt)} · {entry.itemCount} vehicles
-                    {entry.isCurrent ? " · Active" : ""}
-                    {!entry.hasStoredPdf ? " · No stored file" : ""}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => confirmDeleteUpload(entry)}
-                  accessibilityLabel={`Remove ${entry.fileName}`}
-                  style={styles.deleteBtn}
-                >
-                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                </Pressable>
-              </View>
-            </Card>
+      {warnings.length > 0 ? (
+        <View style={styles.warningBox}>
+          <Text style={styles.warningTitle}>
+            Imported with {warnings.length} warning{warnings.length === 1 ? "" : "s"}
+          </Text>
+          {warnings.slice(0, 3).map((warning, index) => (
+            <Text key={`${warning}-${index}`} style={styles.warningText}>
+              • {warning}
+            </Text>
           ))}
+          {warnings.length > 3 ? (
+            <Text style={styles.warningText}>+ {warnings.length - 3} more</Text>
+          ) : null}
         </View>
       ) : null}
+
+      <Pressable
+        style={styles.historyButton}
+        onPress={() => router.push("/upload-history" as never)}
+      >
+        <View style={styles.historyIcon}>
+          <Ionicons name="time-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={styles.historyCopy}>
+          <Text style={styles.historyTitle}>Audit file history</Text>
+          <Text style={styles.historyHint}>View or remove previous audit files</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+      </Pressable>
 
       <VinSearchInput
         style={styles.search}
@@ -237,7 +281,7 @@ export default function UploadScreen() {
       />
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} color={colors.primary} />
+        <SkeletonCards />
       ) : (
         <FlatList
           data={filteredItems}
@@ -288,6 +332,16 @@ const styles = StyleSheet.create({
   uploadCopy: { flex: 1 },
   uploadTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   uploadHint: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  currentDeleteBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.dangerLight,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -296,38 +350,48 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   meta: { color: colors.textSecondary, fontSize: 13, flex: 1 },
-  logSection: {
+  warningBox: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    backgroundColor: colors.warningLight,
+  },
+  warningTitle: { color: colors.text, fontSize: 12, fontWeight: "800" },
+  warningText: { color: colors.textSecondary, fontSize: 11, marginTop: 4 },
+  historyButton: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  logTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: colors.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  logCard: { paddingVertical: spacing.sm },
-  logRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  logCopy: { flex: 1 },
-  logFile: { fontWeight: "700", color: colors.text, fontSize: 14 },
-  logMeta: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
-  deleteBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  historyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.dangerLight,
+    backgroundColor: colors.primaryLight,
   },
+  historyCopy: { flex: 1 },
+  historyTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
+  historyHint: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   search: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
   loader: { marginTop: spacing.xxl },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: 132 },
   vin: {
     ...typography.vin,
     fontSize: 17,

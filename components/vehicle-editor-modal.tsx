@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 
@@ -43,11 +44,18 @@ export function VehicleEditorModal({
   }
 
   return (
-    <KeyboardModalSheet visible={visible} onClose={onClose}>
-      <Text style={styles.title}>Edit vehicle</Text>
-      <Text style={styles.vin}>
-        {vehicle ? formatVinPrimary(vehicle.vin, vehicle.vinSuffix) : ""}
-      </Text>
+    <KeyboardModalSheet visible={visible} onClose={onClose} centered>
+      <View style={styles.heading}>
+        <View style={styles.headingIcon}>
+          <Ionicons name="car-sport" size={24} color={colors.onPrimary} />
+        </View>
+        <View style={styles.headingCopy}>
+          <Text style={styles.title}>Edit vehicle</Text>
+          <Text style={styles.vin}>
+            {vehicle ? formatVinPrimary(vehicle.vin, vehicle.vinSuffix) : ""}
+          </Text>
+        </View>
+      </View>
       {vehicle && formatVinSecondary(vehicle.vin, vehicle.vinSuffix) ? (
         <Text style={styles.vinMeta}>
           {formatVinSecondary(vehicle.vin, vehicle.vinSuffix)}
@@ -87,15 +95,37 @@ export function VehicleEditorModal({
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 20, fontWeight: "800", color: colors.text },
+  heading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  headingIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  headingCopy: { flex: 1 },
+  title: { fontSize: 24, fontWeight: "900", color: colors.text },
   vin: {
     ...typography.vin,
     fontSize: 14,
     fontWeight: "700",
-    marginTop: spacing.xs,
+    marginTop: 2,
     color: colors.primary,
   },
-  vinMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  vinMeta: {
+    ...typography.vin,
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    paddingLeft: 60,
+  },
   label: { marginTop: spacing.lg, marginBottom: spacing.sm, color: colors.textSecondary, fontWeight: "600" },
   input: {
     backgroundColor: colors.surfaceMuted,
@@ -107,6 +137,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text,
   },
-  actions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xl },
+  actions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.xxl,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   actionBtn: { flex: 1, borderRadius: radius.md },
 });

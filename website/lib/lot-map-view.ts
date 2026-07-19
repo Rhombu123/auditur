@@ -1,4 +1,10 @@
-const STORAGE_KEY = "auditur.lotMapView.v1";
+import { requireApiDealershipId } from "@/lib/active-dealership";
+
+const STORAGE_KEY = "auditur.lotMapView.v2";
+
+function storageKey() {
+  return `${STORAGE_KEY}:${requireApiDealershipId()}`;
+}
 
 export type LockedLotView = {
   latitude: number;
@@ -15,7 +21,7 @@ export type LockedLotView = {
 export function loadLockedLotView(): LockedLotView | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LockedLotView>;
     if (
@@ -46,11 +52,11 @@ export function loadLockedLotView(): LockedLotView | null {
 }
 
 export function saveLockedLotView(view: LockedLotView): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(view));
+  window.localStorage.setItem(storageKey(), JSON.stringify(view));
 }
 
 export function clearLockedLotView(): void {
-  window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(storageKey());
 }
 
 /** Tight pad so a locked lot stays on-lot; use 0.08–0.15 for hard lock. */

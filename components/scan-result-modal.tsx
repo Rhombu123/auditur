@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { MotiView } from "moti";
 
@@ -6,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { colors, radius, spacing, typography } from "@/constants/theme";
 import type { InventoryItem } from "@/lib/types";
 import { formatVinPrimary, formatVinSecondary } from "@/lib/vin-display";
-import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
+import {
+  formatVehicleTitle,
+  getVehicleDisplay,
+  visibleVehicleColor,
+} from "@/lib/vehicle-display";
 
 export type ScanResultSummary = {
   vin: string | null;
@@ -35,6 +40,7 @@ export function ScanResultModal({
   onScanAnother,
 }: Props) {
   const display = result ? getVehicleDisplay(result.vehicle) : null;
+  const color = display ? visibleVehicleColor(display.color) : null;
 
   return (
     <KeyboardModalSheet visible={visible} onClose={onScanAnother} centered>
@@ -59,10 +65,16 @@ export function ScanResultModal({
           </>
         ) : result && display ? (
           <>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {result.isRescan ? "Location updated" : "Vehicle scanned"}
-              </Text>
+            <View style={styles.successRow}>
+              <View style={styles.successIcon}>
+                <Ionicons name="checkmark" size={24} color={colors.onPrimary} />
+              </View>
+              <View>
+                <Text style={styles.successTitle}>Scan saved</Text>
+                <Text style={styles.successHint}>
+                  {result.isRescan ? "Vehicle location updated" : "Vehicle added to today’s audit"}
+                </Text>
+              </View>
             </View>
             <Text style={styles.title}>{formatVehicleTitle(display)}</Text>
             <Text style={styles.vin}>
@@ -74,10 +86,12 @@ export function ScanResultModal({
               </Text>
             ) : null}
             <View style={styles.details}>
-              <Text style={styles.detailLine}>
-                <Text style={styles.detailLabel}>Color: </Text>
-                {display.color}
-              </Text>
+              {color ? (
+                <Text style={styles.detailLine}>
+                  <Text style={styles.detailLabel}>Color: </Text>
+                  {color}
+                </Text>
+              ) : null}
               {result.vehicle.daysOnLot != null ? (
                 <Text style={styles.detailLine}>
                   <Text style={styles.detailLabel}>Days on lot: </Text>
@@ -95,8 +109,10 @@ export function ScanResultModal({
                 {result.inventoryMatched ? "Matched" : "Not on current list"}
               </Text>
             </View>
-            <Button label="View vehicle" onPress={onViewVehicle} />
-            <Button label="Scan another" variant="secondary" onPress={onScanAnother} />
+            <View style={styles.buttonStack}>
+              <Button label="View vehicle" onPress={onViewVehicle} />
+              <Button label="Scan another" variant="secondary" onPress={onScanAnother} />
+            </View>
           </>
         ) : null}
       </MotiView>
@@ -105,20 +121,30 @@ export function ScanResultModal({
 }
 
 const styles = StyleSheet.create({
-  badge: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.primaryLight,
-    borderRadius: radius.pill,
+  successRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.primaryBorder,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.primaryLight,
   },
-  badgeText: {
+  successIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.success,
+  },
+  successTitle: {
     color: colors.primaryDark,
-    fontWeight: "700",
-    fontSize: 12,
+    fontWeight: "800",
+    fontSize: 15,
   },
+  successHint: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   title: {
     fontSize: 22,
     fontWeight: "800",
@@ -139,6 +165,12 @@ const styles = StyleSheet.create({
   },
   detailLine: { color: colors.textSecondary, fontSize: 15 },
   detailLabel: { fontWeight: "700", color: colors.text },
+  buttonStack: {
+    marginTop: spacing.md,
+    gap: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
   loadingTitle: {
     marginTop: spacing.md,
     fontSize: 18,

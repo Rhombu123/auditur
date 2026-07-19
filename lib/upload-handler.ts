@@ -1,25 +1,16 @@
 import { saveInventorySnapshot } from "./db/inventory.js";
-import { extractPdfText } from "./extract-pdf-text.js";
-import { parseInventoryText } from "./parse-inventory.js";
+import {
+  importInventoryBuffer,
+  InventoryImportError,
+} from "./inventory-import.js";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-
-function isPdfFile(fileName: string, buffer: Buffer): boolean {
-  const normalizedName = fileName.toLowerCase();
-  return (
-    normalizedName.endsWith(".pdf") ||
-    buffer.subarray(0, 4).toString() === "%PDF"
-  );
-}
 
 export async function runUploadBuffer(
   buffer: Buffer,
   fileName: string,
+  access: { dealershipId: string; userId: string; accessToken?: string },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  if (!isPdfFile(fileName, buffer)) {
-    return { status: 400, body: { error: "Only PDF files are supported." } };
-  }
-
   if (buffer.length > MAX_FILE_SIZE_BYTES) {
     return {
       status: 400,
@@ -27,26 +18,33 @@ export async function runUploadBuffer(
     };
   }
 
-  if (buffer.length === 0) {
-    return { status: 400, body: { error: "The selected file is empty." } };
+  let result;
+  try {
+    result = await importInventoryBuffer(buffer, fileName);
+  } catch (error) {
+    if (error instanceof InventoryImportError) {
+      return {
+        status: error.status,
+        body: { error: error.message, ...error.details },
+      };
+    }
+    throw error;
   }
 
-  const text = await extractPdfText(buffer);
-  const result = parseInventoryText(text);
-
-  if (result.items.length === 0) {
-    return {
-      status: 422,
-      body: {
-        error:
-          "No inventory records found. The PDF may use a format we cannot parse yet.",
-        rawTextPreview: result.rawTextPreview,
-        totalLines: result.totalLines,
-      },
-    };
-  }
-
-  const inventory = await saveInventorySnapshot(fileName, result.items, buffer);
+  const inventory = await saveInventorySnapshot(
+    fileName,
+    result.items,
+    access,
+    {
+      buffer,
+      contentType: result.contentType,
+      fileFormat: result.fileFormat,
+      sourceSystem: result.sourceSystem,
+      importMethod: result.importMethod,
+      parserMetadata: result.parserMetadata,
+      warnings: result.warnings,
+    },
+  );
 
   return {
     status: 200,
@@ -56,6 +54,12 @@ export async function runUploadBuffer(
       itemCount: inventory.items.length,
       items: inventory.items,
       uploadId: inventory.id,
+      fileFormat: result.fileFormat,
+      sourceSystem: result.sourceSystem,
+      importMethod: result.importMethod,
+      detectedColumns: result.detectedColumns,
+      warnings: result.warnings,
+      parserMetadata: result.parserMetadata,
     },
   };
 }

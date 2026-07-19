@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { AuthLoading, AuthShell } from "@/components/auth/AuthShell";
 import { EmailAuthForm } from "@/components/auth/EmailAuthForm";
@@ -10,10 +10,18 @@ import { useAuth } from "@/lib/auth-context";
 import { sanitizeReturnTo } from "@/lib/auth-redirect";
 
 function SignupContent() {
-  const { session, loading, signUpWithPassword, isAdminBypass } = useAuth();
+  const {
+    session,
+    loading,
+    signUpWithPassword,
+    resendSignupConfirmation,
+    isAdminBypass,
+  } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = sanitizeReturnTo(searchParams.get("next"));
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
+  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && (session || isAdminBypass)) {
@@ -35,14 +43,45 @@ function SignupContent() {
         </>
       }
     >
-      <EmailAuthForm
-        mode="signup"
-        onSubmit={async (email, password, signup) => {
-          if (!signup) throw new Error("Complete your account details.");
-          await signUpWithPassword(email, password, signup);
-          router.replace(returnTo);
-        }}
-      />
+      {confirmationEmail ? (
+        <div className="auth-confirmation">
+          <strong>Check your work email</strong>
+          <p>
+            Confirm {confirmationEmail}, then sign in to set up Microsoft
+            Authenticator.
+          </p>
+          <button
+            type="button"
+            className="auth-btn"
+            onClick={() =>
+              void resendSignupConfirmation(confirmationEmail).then(() =>
+                setConfirmationMessage("A new confirmation email was sent."),
+              )
+            }
+          >
+            Resend confirmation
+          </button>
+          {confirmationMessage ? <p>{confirmationMessage}</p> : null}
+        </div>
+      ) : (
+        <EmailAuthForm
+          mode="signup"
+          onSubmit={async (email, password, signup, captchaToken) => {
+            if (!signup) throw new Error("Complete your account details.");
+            const result = await signUpWithPassword(
+              email,
+              password,
+              signup,
+              captchaToken,
+            );
+            if (result === "confirmation-required") {
+              setConfirmationEmail(email.trim().toLowerCase());
+            } else {
+              router.replace(returnTo);
+            }
+          }}
+        />
+      )}
     </AuthShell>
   );
 }

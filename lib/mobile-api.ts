@@ -1,6 +1,11 @@
 import { buildTodayAuditSummary } from "@/lib/audit";
+import { requireApiDealershipId } from "@/lib/active-dealership";
 import { readApiJson } from "@/lib/fetch-json";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  clearMobileCache,
+  MOBILE_CACHE_KEYS,
+} from "@/lib/mobile-cache";
 import { supabase } from "@/lib/supabase";
 import {
   normalizeZoneName,
@@ -9,6 +14,7 @@ import {
 } from "@/lib/lot-zone-storage";
 import type {
   InventoryItem,
+  InventoryImportSummary,
   InventorySnapshot,
   InventoryUploadLog,
   LotStatus,
@@ -23,13 +29,26 @@ import { decodeVinFromNhtsa, formatDecodedVehicle } from "@/lib/vin-decode";
 import { matchesVehicleSearch } from "@/lib/vin-search";
 import { zoneColorByIndex } from "@/lib/zone-colors";
 
-const uploadApiUrl =
+const configuredUploadApiUrl =
   process.env.EXPO_PUBLIC_UPLOAD_API_URL ??
-  "https://auditur.vercel.app/api/upload";
+  "https://auditur.vercel.app/api/upload/";
+const uploadApiUrl = configuredUploadApiUrl.endsWith("/")
+  ? configuredUploadApiUrl
+  : `${configuredUploadApiUrl}/`;
 
 const ocrApiUrl =
   process.env.EXPO_PUBLIC_OCR_API_URL ??
-  uploadApiUrl.replace(/\/upload\/?$/, "/ocr");
+  uploadApiUrl.replace(/\/upload\/$/, "/ocr/");
+
+async function authenticatedApiHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in again to continue.");
+  return {
+    Authorization: `Bearer ${token}`,
+    "X-Auditur-Dealership-ID": requireApiDealershipId(),
+  };
+}
 
 function isScannedToday(scannedAt: string): boolean {
   const scanned = new Date(scannedAt);
@@ -41,27 +60,50 @@ function isScannedToday(scannedAt: string): boolean {
   );
 }
 
-export async function uploadInventoryPdf(
+export async function uploadInventoryFile(
   fileUri: string,
   fileName: string,
-): Promise<InventorySnapshot> {
+  mimeType?: string | null,
+): Promise<InventoryImportSummary> {
+  const fileFormat = fileName.toLowerCase().endsWith(".csv") ? "csv" : "pdf";
   const formData = new FormData();
   formData.append("file", {
     uri: fileUri,
     name: fileName,
-    type: "application/pdf",
+    type:
+      mimeType ??
+      (fileFormat === "csv" ? "text/csv" : "application/pdf"),
   } as unknown as Blob);
 
-  const response = await fetch(uploadApiUrl, {
-    method: "POST",
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch(uploadApiUrl, {
+      method: "POST",
+      headers: await authenticatedApiHeaders(),
+      body: formData,
+    });
+  } catch (error) {
+    const message = getErrorMessage(error, "");
+    throw new Error(
+      /load failed|network request failed|failed to fetch/i.test(message)
+        ? "Could not reach the upload server. Check your connection and try again."
+        : message || "The upload could not be started.",
+    );
+  }
 
   const data = await readApiJson<
     | {
         fileName: string;
         uploadedAt?: string;
+        uploadId?: string;
+        itemCount?: number;
         items: InventoryItem[];
+        fileFormat: "pdf" | "csv";
+        sourceSystem: string;
+        importMethod: "manual";
+        detectedColumns?: string[];
+        warnings?: string[];
+        parserMetadata?: Record<string, unknown>;
       }
     | { error: string }
   >(response);
@@ -75,9 +117,17 @@ export async function uploadInventoryPdf(
   }
 
   return {
+    uploadId: data.uploadId,
     fileName: data.fileName,
     uploadedAt: data.uploadedAt ?? new Date().toISOString(),
+    itemCount: data.itemCount ?? data.items.length,
     items: data.items,
+    fileFormat: data.fileFormat,
+    sourceSystem: data.sourceSystem,
+    importMethod: data.importMethod,
+    detectedColumns: data.detectedColumns ?? [],
+    warnings: data.warnings ?? [],
+    parserMetadata: data.parserMetadata ?? {},
   };
 }
 
@@ -93,6 +143,7 @@ export async function ocrVinFromImage(
 
   const response = await fetch(ocrApiUrl, {
     method: "POST",
+    headers: await authenticatedApiHeaders(),
     body: formData,
   });
 
@@ -117,9 +168,14 @@ export async function ocrVinFromImage(
 }
 
 export async function fetchInventory(): Promise<InventorySnapshot | null> {
+  const dealershipId = requireApiDealershipId();
   const { data: upload, error: uploadError } = await supabase
     .from("inventory_uploads")
-    .select("id, file_name, uploaded_at")
+    .select(
+      "id, file_name, uploaded_at, file_format, source_system, import_method, parser_metadata, import_warnings",
+    )
+    .eq("dealership_id", dealershipId)
+    .is("archived_at", null)
     .order("uploaded_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -129,7 +185,10 @@ export async function fetchInventory(): Promise<InventorySnapshot | null> {
 
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
-    .select("id, vin_suffix, model, color, days_on_lot, miles, year, lot_status")
+    .select(
+      "id, vin, vin_suffix, stock_number, make, model, color, source_status, days_on_lot, miles, year, lot_status",
+    )
+    .eq("dealership_id", dealershipId)
     .eq("upload_id", upload.id)
     .eq("lot_status", "active")
     .order("vin_suffix", { ascending: true });
@@ -140,11 +199,20 @@ export async function fetchInventory(): Promise<InventorySnapshot | null> {
     id: upload.id,
     fileName: upload.file_name,
     uploadedAt: upload.uploaded_at,
+    fileFormat: upload.file_format,
+    sourceSystem: upload.source_system,
+    importMethod: upload.import_method,
+    parserMetadata: upload.parser_metadata,
+    warnings: upload.import_warnings,
     items: (items ?? []).map((row) => ({
       id: row.id,
+      vin: row.vin,
       vinSuffix: row.vin_suffix,
+      stockNumber: row.stock_number,
+      make: row.make,
       model: row.model,
       color: row.color,
+      sourceStatus: row.source_status,
       daysOnLot: row.days_on_lot,
       miles: row.miles,
       year: row.year,
@@ -154,56 +222,95 @@ export async function fetchInventory(): Promise<InventorySnapshot | null> {
 }
 
 export async function fetchUploadHistory(): Promise<InventoryUploadLog[]> {
-  const { data, error } = await supabase
-    .from("inventory_uploads")
-    .select("id, file_name, uploaded_at, item_count, storage_path")
-    .order("uploaded_at", { ascending: false })
-    .limit(25);
+  const dealershipId = requireApiDealershipId();
+  const [uploadResult, scanResult] = await Promise.all([
+    supabase
+      .from("inventory_uploads")
+      .select(
+        "id, file_name, uploaded_at, item_count, storage_path, archived_at, file_format, source_system, import_method, parser_metadata, import_warnings",
+      )
+      .eq("dealership_id", dealershipId)
+      .order("uploaded_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("vehicle_scans")
+      .select("inventory_upload_id, scanned_at")
+      .eq("dealership_id", dealershipId)
+      .not("inventory_upload_id", "is", null)
+      .order("scanned_at", { ascending: false })
+      .limit(10000),
+  ]);
 
-  if (error) throw error;
+  if (uploadResult.error) throw uploadResult.error;
+  if (scanResult.error) throw scanResult.error;
 
-  const currentId = data?.[0]?.id ?? null;
-  return (data ?? []).map((row) => ({
+  const usageByUpload = new Map<
+    string,
+    { scanCount: number; lastUsedAt: string }
+  >();
+  for (const scan of scanResult.data ?? []) {
+    if (!scan.inventory_upload_id) continue;
+    const current = usageByUpload.get(scan.inventory_upload_id);
+    usageByUpload.set(scan.inventory_upload_id, {
+      scanCount: (current?.scanCount ?? 0) + 1,
+      lastUsedAt: current?.lastUsedAt ?? scan.scanned_at,
+    });
+  }
+
+  return (uploadResult.data ?? []).map((row) => ({
     id: row.id,
     fileName: row.file_name,
     uploadedAt: row.uploaded_at,
     itemCount: row.item_count ?? 0,
-    isCurrent: row.id === currentId,
-    hasStoredPdf: Boolean(row.storage_path),
+    isCurrent: row.archived_at == null,
+    hasStoredPdf: row.file_format === "pdf" && Boolean(row.storage_path),
+    fileFormat: row.file_format,
+    sourceSystem: row.source_system,
+    importMethod: row.import_method,
+    parserMetadata: row.parser_metadata,
+    warnings: row.import_warnings ?? [],
+    archivedAt: row.archived_at,
+    scanCount: usageByUpload.get(row.id)?.scanCount ?? 0,
+    lastUsedAt: usageByUpload.get(row.id)?.lastUsedAt ?? null,
   }));
 }
 
+export async function archiveInventoryUpload(uploadId: string): Promise<void> {
+  const { error } = await supabase.rpc("archive_inventory_upload", {
+    target_upload_id: uploadId,
+  });
+  if (error) {
+    throw new Error(getErrorMessage(error, "Could not remove the current audit file."));
+  }
+  await Promise.all([
+    clearMobileCache(MOBILE_CACHE_KEYS.audit),
+    clearMobileCache(MOBILE_CACHE_KEYS.inventory),
+    clearMobileCache(MOBILE_CACHE_KEYS.uploadHistory),
+  ]);
+}
+
 export async function deleteInventoryUpload(uploadId: string): Promise<void> {
+  const dealershipId = requireApiDealershipId();
   const { data: upload, error: fetchError } = await supabase
     .from("inventory_uploads")
     .select("storage_path")
     .eq("id", uploadId)
+    .eq("dealership_id", dealershipId)
     .maybeSingle();
 
   if (fetchError) {
     throw new Error(getErrorMessage(fetchError, "Could not find upload."));
   }
 
-  if (upload?.storage_path) {
-    const { error: storageError } = await supabase.storage
-      .from("price-lists")
-      .remove([upload.storage_path]);
-    if (storageError) {
-      throw new Error(getErrorMessage(storageError, "Could not delete stored PDF."));
-    }
-  }
-
-  const { error: itemsError } = await supabase
-    .from("inventory_items")
-    .delete()
-    .eq("upload_id", uploadId);
-  if (itemsError) {
-    throw new Error(getErrorMessage(itemsError, "Could not delete inventory items."));
-  }
-
-  const { error } = await supabase.from("inventory_uploads").delete().eq("id", uploadId);
+  const { error } = await supabase.rpc("delete_inventory_upload", {
+    target_upload_id: uploadId,
+  });
   if (error) {
     throw new Error(getErrorMessage(error, "Could not delete upload."));
+  }
+
+  if (upload?.storage_path) {
+    await supabase.storage.from("price-lists").remove([upload.storage_path]);
   }
 }
 
@@ -296,9 +403,11 @@ function yearFromModel(model: string | null): number | null {
 }
 
 export async function fetchLatestScanRow(vinSuffix: string) {
+  const dealershipId = requireApiDealershipId();
   const { data } = await supabase
     .from("vehicle_scans")
     .select("*")
+    .eq("dealership_id", dealershipId)
     .eq("vin_suffix", vinSuffix.toUpperCase())
     .order("scanned_at", { ascending: false })
     .limit(1)
@@ -317,6 +426,7 @@ export async function saveScan(record: {
   vehicle: InventoryItem;
   inventoryMatched: boolean;
 }): Promise<ScanRecord & { isRescan: boolean }> {
+  const dealershipId = requireApiDealershipId();
   const normalizedSuffix = record.vinSuffix.toUpperCase();
   const existing = await fetchLatestScanRow(normalizedSuffix);
   const mergedVin = record.vin ?? existing?.vin ?? null;
@@ -335,7 +445,10 @@ export async function saveScan(record: {
     }
   }
 
-  const { data: authData } = await supabase.auth.getUser();
+  const [{ data: authData }, inventoryUploadId] = await Promise.all([
+    supabase.auth.getUser(),
+    fetchLatestUploadId(),
+  ]);
   const scanner = authData.user;
 
   const { data, error } = await supabase
@@ -353,18 +466,13 @@ export async function saveScan(record: {
       matched: record.inventoryMatched,
       scanned_by: scanner?.id ?? null,
       scanner_email: scanner?.email ?? null,
+      dealership_id: dealershipId,
+      inventory_upload_id: inventoryUploadId,
     })
     .select("*")
     .single();
 
   if (error || !data) throw error ?? new Error("Failed to save scan.");
-
-  if (mergedVin) {
-    await supabase
-      .from("vehicle_scans")
-      .update({ vin: mergedVin })
-      .eq("vin_suffix", normalizedSuffix);
-  }
 
   const year = vehicle.year ?? yearFromModel(vehicle.model);
 
@@ -386,6 +494,34 @@ export async function saveScan(record: {
     scannedAt: data.scanned_at,
     isRescan,
   };
+}
+
+export async function voidVehicleScan(scanId: string): Promise<void> {
+  const { error } = await supabase.rpc("void_vehicle_scan", {
+    target_scan_id: scanId,
+    reason: "Mistaken scan",
+  });
+  if (error) {
+    throw new Error(getErrorMessage(error, "Could not remove the mistaken scan."));
+  }
+  await Promise.all([
+    clearMobileCache(MOBILE_CACHE_KEYS.audit),
+    clearMobileCache(MOBILE_CACHE_KEYS.vehicles),
+  ]);
+}
+
+export async function deleteScannedVehicle(scanId: string): Promise<void> {
+  const { error } = await supabase.rpc("void_scanned_vehicle", {
+    target_scan_id: scanId,
+    reason: "Vehicle deleted from the vehicle list",
+  });
+  if (error) {
+    throw new Error(getErrorMessage(error, "Could not delete the vehicle."));
+  }
+  await Promise.all([
+    clearMobileCache(MOBILE_CACHE_KEYS.audit),
+    clearMobileCache(MOBILE_CACHE_KEYS.vehicles),
+  ]);
 }
 
 function buildScanMatchedItem(
@@ -464,16 +600,24 @@ function mapScanRowToVehicle(
 }
 
 function normalizeLotStatus(value: string | null | undefined): LotStatus {
-  if (value === "sold" || value === "auctioned" || value === "active") {
+  if (
+    value === "sold" ||
+    value === "auctioned" ||
+    value === "removed" ||
+    value === "active"
+  ) {
     return value;
   }
   return "active";
 }
 
 async function fetchLatestUploadId(): Promise<string | null> {
+  const dealershipId = requireApiDealershipId();
   const { data: upload, error } = await supabase
     .from("inventory_uploads")
     .select("id")
+    .eq("dealership_id", dealershipId)
+    .is("archived_at", null)
     .order("uploaded_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -482,41 +626,51 @@ async function fetchLatestUploadId(): Promise<string | null> {
   return upload?.id ?? null;
 }
 
-async function fetchInventoryStatusMap(): Promise<Map<string, InventoryItem>> {
+async function fetchInventoryStatusContext(): Promise<{
+  uploadId: string | null;
+  itemsByVin: Map<string, InventoryItem>;
+}> {
+  const dealershipId = requireApiDealershipId();
   const uploadId = await fetchLatestUploadId();
-  if (!uploadId) return new Map();
+  if (!uploadId) return { uploadId: null, itemsByVin: new Map() };
 
   const { data: items, error } = await supabase
     .from("inventory_items")
     .select("id, vin_suffix, model, color, days_on_lot, miles, year, lot_status")
+    .eq("dealership_id", dealershipId)
     .eq("upload_id", uploadId);
 
   if (error) throw error;
 
-  return new Map(
-    (items ?? []).map((row) => [
-      row.vin_suffix.toUpperCase(),
-      {
-        id: row.id,
-        vinSuffix: row.vin_suffix,
-        model: row.model,
-        color: row.color,
-        daysOnLot: row.days_on_lot,
-        miles: row.miles,
-        year: row.year,
-        lotStatus: normalizeLotStatus(row.lot_status),
-      },
-    ]),
-  );
+  return {
+    uploadId,
+    itemsByVin: new Map(
+      (items ?? []).map((row) => [
+        row.vin_suffix.toUpperCase(),
+        {
+          id: row.id,
+          vinSuffix: row.vin_suffix,
+          model: row.model,
+          color: row.color,
+          daysOnLot: row.days_on_lot,
+          miles: row.miles,
+          year: row.year,
+          lotStatus: normalizeLotStatus(row.lot_status),
+        },
+      ]),
+    ),
+  };
 }
 
 export async function fetchScannedVehicles(): Promise<ScannedVehicle[]> {
-  const [{ data, error }, inventoryByVin] = await Promise.all([
+  const dealershipId = requireApiDealershipId();
+  const [{ data, error }, inventoryContext] = await Promise.all([
     supabase
       .from("vehicle_scans")
       .select("*")
+      .eq("dealership_id", dealershipId)
       .order("scanned_at", { ascending: false }),
-    fetchInventoryStatusMap(),
+    fetchInventoryStatusContext(),
   ]);
 
   if (error) throw error;
@@ -526,6 +680,12 @@ export async function fetchScannedVehicles(): Promise<ScannedVehicle[]> {
 
   for (const row of data ?? []) {
     const key = row.vin_suffix.toUpperCase();
+    const belongsToCurrentInventory = inventoryContext.itemsByVin.has(key);
+    const belongsToCurrentUpload =
+      !inventoryContext.uploadId ||
+      row.inventory_upload_id === inventoryContext.uploadId;
+    if (!belongsToCurrentInventory && !belongsToCurrentUpload) continue;
+
     scanCountByVin.set(key, (scanCountByVin.get(key) ?? 0) + 1);
     if (!latestByVin.has(key)) {
       latestByVin.set(key, row);
@@ -535,7 +695,7 @@ export async function fetchScannedVehicles(): Promise<ScannedVehicle[]> {
   return Array.from(latestByVin.values()).map((row) =>
     mapScanRowToVehicle(
       row,
-      inventoryByVin.get(row.vin_suffix.toUpperCase()) ?? null,
+      inventoryContext.itemsByVin.get(row.vin_suffix.toUpperCase()) ?? null,
       scanCountByVin.get(row.vin_suffix.toUpperCase()) ?? 1,
     ),
   );
@@ -545,10 +705,12 @@ export async function updateScannedVehicle(
   id: string,
   updates: { model: string; color: string },
 ): Promise<void> {
+  const dealershipId = requireApiDealershipId();
   const { data: row, error: fetchError } = await supabase
     .from("vehicle_scans")
     .select("vin_suffix")
     .eq("id", id)
+    .eq("dealership_id", dealershipId)
     .single();
 
   if (fetchError || !row) throw fetchError ?? new Error("Vehicle not found.");
@@ -559,59 +721,19 @@ export async function updateScannedVehicle(
       model: updates.model,
       color: updates.color,
     })
+    .eq("dealership_id", dealershipId)
     .eq("vin_suffix", row.vin_suffix);
 
   if (error) throw error;
 }
 
-export async function deleteScannedVehicleByVinSuffix(vinSuffix: string): Promise<void> {
-  const normalized = vinSuffix.trim().toUpperCase();
-  if (!normalized) {
-    throw new Error("Vehicle not found.");
-  }
-
-  const { data: matches, error: listError } = await supabase
-    .from("vehicle_scans")
-    .select("id")
-    .ilike("vin_suffix", normalized);
-
-  if (listError) {
-    throw new Error(getErrorMessage(listError, "Could not find vehicle."));
-  }
-
-  const ids = (matches ?? []).map((row) => row.id);
-  if (ids.length === 0) {
-    throw new Error("Vehicle not found.");
-  }
-
-  const { error } = await supabase.from("vehicle_scans").delete().in("id", ids);
-  if (error) {
-    throw new Error(getErrorMessage(error, "Delete failed."));
-  }
-}
-
-export async function deleteScannedVehicle(id: string): Promise<void> {
-  const { data: row, error: fetchError } = await supabase
-    .from("vehicle_scans")
-    .select("vin_suffix")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (fetchError) {
-    throw new Error(getErrorMessage(fetchError, "Could not find vehicle."));
-  }
-  if (!row) {
-    throw new Error("Vehicle not found.");
-  }
-
-  await deleteScannedVehicleByVinSuffix(row.vin_suffix);
-}
-
 export async function fetchVehicleScanHistory(vinSuffix: string): Promise<ScanRecord[]> {
+  const dealershipId = requireApiDealershipId();
   const [{ data, error }, inventory] = await Promise.all([
     supabase
       .from("vehicle_scans")
       .select("*")
+      .eq("dealership_id", dealershipId)
       .eq("vin_suffix", vinSuffix.toUpperCase())
       .order("scanned_at", { ascending: false }),
     fetchInventory(),
@@ -639,18 +761,20 @@ export async function fetchVehicleScanHistory(vinSuffix: string): Promise<ScanRe
 }
 
 export async function fetchTodayAudit(): Promise<TodayAuditSummary | null> {
-  const [inventory, { data: scans, error }] = await Promise.all([
-    fetchInventory(),
-    supabase
-      .from("vehicle_scans")
-      .select("vin_suffix, model, color, scanned_at, scanner_email, matched")
-      .order("scanned_at", { ascending: false }),
-  ]);
+  const dealershipId = requireApiDealershipId();
+  const inventory = await fetchInventory();
+  if (!inventory?.id) return null;
+  const { data: scans, error } = await supabase
+    .from("vehicle_scans")
+    .select("vin_suffix, model, color, scanned_at, scanner_email, matched")
+    .eq("dealership_id", dealershipId)
+    .eq("inventory_upload_id", inventory.id)
+    .order("scanned_at", { ascending: false });
 
   if (error) throw error;
-  if (!inventory) return null;
 
-  return buildTodayAuditSummary({
+  return {
+    ...buildTodayAuditSummary({
     inventoryFileName: inventory.fileName,
     inventoryItems: inventory.items,
     scansToday: (scans ?? []).map((row) => ({
@@ -661,7 +785,11 @@ export async function fetchTodayAudit(): Promise<TodayAuditSummary | null> {
       scannerEmail: row.scanner_email,
       matched: row.matched,
     })),
-  });
+    }),
+    fileFormat: inventory.fileFormat,
+    sourceSystem: inventory.sourceSystem,
+    warnings: inventory.warnings,
+  };
 }
 
 function mapLotZoneRow(row: {
@@ -693,6 +821,7 @@ export async function updateLotZoneColors(
   id: string,
   colors: { fillColor: string; strokeColor: string },
 ): Promise<LotZone> {
+  const dealershipId = requireApiDealershipId();
   const { data, error } = await supabase
     .from("lot_zones")
     .update({
@@ -700,6 +829,7 @@ export async function updateLotZoneColors(
       stroke_color: colors.strokeColor,
     })
     .eq("id", id)
+    .eq("dealership_id", dealershipId)
     .select("*")
     .single();
 
@@ -714,11 +844,13 @@ async function updateLotZonePolygons(
   id: string,
   polygons: { latitude: number; longitude: number }[][],
 ): Promise<LotZone> {
+  const dealershipId = requireApiDealershipId();
   const serialized = serializeZonePolygons(polygons);
   const { data, error } = await supabase
     .from("lot_zones")
     .update({ coordinates: serialized })
     .eq("id", id)
+    .eq("dealership_id", dealershipId)
     .select("*")
     .single();
 
@@ -765,9 +897,11 @@ async function consolidateDuplicateZoneNames(zones: LotZone[]): Promise<LotZone[
 }
 
 export async function fetchLotZones(): Promise<LotZone[]> {
+  const dealershipId = requireApiDealershipId();
   const { data, error } = await supabase
     .from("lot_zones")
     .select("*")
+    .eq("dealership_id", dealershipId)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -779,7 +913,10 @@ export async function createLotZone(input: {
   name: string;
   coordinates: { latitude: number; longitude: number }[];
   colorIndex?: number;
+  fillColor?: string;
+  strokeColor?: string;
 }): Promise<LotZone> {
+  const dealershipId = requireApiDealershipId();
   const name = input.name.trim();
   const newPolygon = serializeZonePolygons([input.coordinates])[0];
   if (!newPolygon) {
@@ -789,6 +926,7 @@ export async function createLotZone(input: {
   const { data: existingRows, error: listError } = await supabase
     .from("lot_zones")
     .select("*")
+    .eq("dealership_id", dealershipId)
     .order("created_at", { ascending: true });
 
   if (listError) {
@@ -817,9 +955,10 @@ export async function createLotZone(input: {
     .insert({
       name,
       coordinates: [newPolygon],
-      fill_color: colors.fill,
-      stroke_color: colors.stroke,
+      fill_color: input.fillColor ?? colors.fill,
+      stroke_color: input.strokeColor ?? colors.stroke,
       created_by: authData.user?.id ?? null,
+      dealership_id: dealershipId,
     })
     .select("*")
     .single();
@@ -832,17 +971,24 @@ export async function createLotZone(input: {
 }
 
 export async function deleteLotZone(id: string): Promise<void> {
-  const { error } = await supabase.from("lot_zones").delete().eq("id", id);
+  const dealershipId = requireApiDealershipId();
+  const { error } = await supabase
+    .from("lot_zones")
+    .delete()
+    .eq("id", id)
+    .eq("dealership_id", dealershipId);
   if (error) {
     throw new Error(getErrorMessage(error, "Could not delete lot zone."));
   }
 }
 
 export async function fetchScans(): Promise<ScanRecord[]> {
+  const dealershipId = requireApiDealershipId();
   const [{ data, error }, inventory] = await Promise.all([
     supabase
       .from("vehicle_scans")
       .select("*")
+      .eq("dealership_id", dealershipId)
       .order("scanned_at", { ascending: false })
       .limit(100),
     fetchInventory(),
@@ -874,9 +1020,12 @@ export async function fetchScans(): Promise<ScanRecord[]> {
 }
 
 export async function fetchLotVehicles(): Promise<LotVehicle[]> {
+  const dealershipId = requireApiDealershipId();
   const { data: upload, error: uploadError } = await supabase
     .from("inventory_uploads")
     .select("id")
+    .eq("dealership_id", dealershipId)
+    .is("archived_at", null)
     .order("uploaded_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -887,6 +1036,7 @@ export async function fetchLotVehicles(): Promise<LotVehicle[]> {
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
     .select("id, vin_suffix, model, color, days_on_lot, miles, year, lot_status")
+    .eq("dealership_id", dealershipId)
     .eq("upload_id", upload.id)
     .eq("lot_status", "active")
     .order("vin_suffix", { ascending: true });
@@ -896,6 +1046,7 @@ export async function fetchLotVehicles(): Promise<LotVehicle[]> {
   const { data: scans, error: scansError } = await supabase
     .from("vehicle_scans")
     .select("vin_suffix, latitude, longitude, scanned_at")
+    .eq("dealership_id", dealershipId)
     .order("scanned_at", { ascending: false });
 
   if (scansError) throw scansError;
@@ -937,48 +1088,20 @@ export async function fetchLotVehicles(): Promise<LotVehicle[]> {
 
 export async function markVehicleRemoved(
   itemId: string,
-  lotStatus: Exclude<LotStatus, "active">,
 ): Promise<void> {
-  const { data: item, error: fetchError } = await supabase
-    .from("inventory_items")
-    .select("vin_suffix")
-    .eq("id", itemId)
-    .single();
-
-  if (fetchError || !item) {
-    throw fetchError ?? new Error("Inventory vehicle not found.");
-  }
-
-  await updateVehicleLotStatus(item.vin_suffix, lotStatus);
+  const { error } = await supabase.rpc("remove_inventory_vehicle", {
+    target_item_id: itemId,
+  });
+  if (error) throw error;
 }
 
-export async function updateVehicleLotStatus(
-  vinSuffix: string,
-  lotStatus: LotStatus,
+export async function restoreVehicle(
+  itemId: string,
 ): Promise<void> {
-  const normalized = vinSuffix.toUpperCase();
-  const removedAt = lotStatus === "active" ? null : new Date().toISOString();
-
-  const { error: scanError } = await supabase
-    .from("vehicle_scans")
-    .update({ lot_status: lotStatus })
-    .eq("vin_suffix", normalized);
-
-  if (scanError) throw scanError;
-
-  const uploadId = await fetchLatestUploadId();
-  if (!uploadId) return;
-
-  const { error: inventoryError } = await supabase
-    .from("inventory_items")
-    .update({
-      lot_status: lotStatus,
-      removed_at: removedAt,
-    })
-    .eq("upload_id", uploadId)
-    .eq("vin_suffix", normalized);
-
-  if (inventoryError) throw inventoryError;
+  const { error } = await supabase.rpc("restore_inventory_vehicle", {
+    target_item_id: itemId,
+  });
+  if (error) throw error;
 }
 
 export async function searchAllVehicles(query: string): Promise<VehicleSearchResult[]> {

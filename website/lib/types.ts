@@ -1,8 +1,32 @@
+export type ImportFileFormat = "pdf" | "csv";
+export type ImportMethod = "manual";
+
 export type InventoryItem = {
+  id?: string;
+  vin?: string | null;
   vinSuffix: string;
+  stockNumber?: string | null;
+  make?: string | null;
   model: string;
   color: string;
+  sourceStatus?: string | null;
   daysOnLot: number | null;
+  miles?: number | null;
+  year?: number | null;
+};
+
+export type InventoryImportSummary = {
+  uploadId?: string;
+  fileName: string;
+  uploadedAt: string;
+  itemCount: number;
+  items: InventoryItem[];
+  fileFormat: ImportFileFormat;
+  sourceSystem: string;
+  importMethod: ImportMethod;
+  detectedColumns: string[];
+  warnings: string[];
+  parserMetadata: Record<string, unknown>;
 };
 
 export type InventoryUploadLog = {
@@ -12,6 +36,14 @@ export type InventoryUploadLog = {
   itemCount: number;
   isCurrent: boolean;
   hasStoredPdf: boolean;
+  fileFormat?: ImportFileFormat;
+  sourceSystem?: string;
+  importMethod?: ImportMethod;
+  parserMetadata?: Record<string, unknown>;
+  warnings: string[];
+  archivedAt: string | null;
+  scanCount: number;
+  lastUsedAt: string | null;
 };
 
 export type AuditVehicleRef = {
@@ -29,6 +61,9 @@ export type TodayAuditSummary = {
   scannedNotOnListCount: number;
   completionPercent: number;
   inventoryFileName: string | null;
+  fileFormat?: ImportFileFormat;
+  sourceSystem?: string;
+  warnings?: string[];
   missingToday: AuditVehicleRef[];
   scannedNotOnList: AuditVehicleRef[];
   scannedToday: AuditVehicleRef[];

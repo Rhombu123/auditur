@@ -8,12 +8,26 @@ export function getCopyableVin(
   return formatFullVin(vehicle.vin) ?? vehicle.vinSuffix.toUpperCase();
 }
 
-export function buildVehicleShareText(vehicle: ScannedVehicle): string {
+function formatSharedScanTime(value: string): string {
+  const date = new Date(value);
+  return `${date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "2-digit",
+  })} ${date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
+export function buildVehicleShareText(
+  vehicle: ScannedVehicle,
+  sectionName?: string | null,
+): string {
   const display = getVehicleDisplay(vehicle);
   const title = formatVehicleTitle(display);
   const vin = getCopyableVin(vehicle);
-  const mapsUrl = `https://maps.google.com/?q=${vehicle.latitude},${vehicle.longitude}`;
-  const scanned = new Date(vehicle.scannedAt).toLocaleString();
+  const scanned = formatSharedScanTime(vehicle.scannedAt);
 
   return [
     title,
@@ -21,7 +35,6 @@ export function buildVehicleShareText(vehicle: ScannedVehicle): string {
     `VIN: ${vin}`,
     `Scans: ${vehicle.scanCount}`,
     `Last scanned: ${scanned}`,
-    `Location: ${vehicle.latitude.toFixed(5)}, ${vehicle.longitude.toFixed(5)}`,
-    mapsUrl,
+    `Section: ${sectionName ?? "Unassigned"}`,
   ].join("\n");
 }

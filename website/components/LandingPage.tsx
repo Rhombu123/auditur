@@ -298,6 +298,8 @@ export function LandingPage() {
         <div className={styles.footerLinks}>
           <a href="#workflow">Workflow</a>
           <a href="#product">Product</a>
+          <Link href="/privacy/">Privacy</Link>
+          <Link href="/support/">Support</Link>
           <Link href="/login/?next=%2Fdashboard%2F">Manager sign in</Link>
         </div>
         <small>© {new Date().getFullYear()} Auditur</small>

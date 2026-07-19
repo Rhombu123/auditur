@@ -14,7 +14,7 @@ export const supabase: SupabaseClient = createClient(
       persistSession: true,
       detectSessionInUrl: true,
       flowType: "pkce",
-      storage: typeof window !== "undefined" ? window.localStorage : undefined,
+      storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
       storageKey: "auditur-dashboard-auth",
     },
   },

@@ -3,11 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { MfaGate } from "@/components/auth/MfaGate";
 import { useAuth } from "@/lib/auth-context";
+import { useMfa } from "@/lib/mfa-context";
 import { tarmac } from "@/lib/tarmac-theme";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { session, loading, isAdminBypass } = useAuth();
+  const { status: mfaStatus } = useMfa();
   const router = useRouter();
   const allowed = Boolean(session) || isAdminBypass;
 
@@ -19,7 +22,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [loading, allowed, router]);
 
-  if (loading) {
+  if (loading || (session && mfaStatus === "loading")) {
     return (
       <div className="gate">
         <div className="pulse" />
@@ -60,6 +63,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!allowed) return null;
+  if (!isAdminBypass && session && mfaStatus !== "verified") {
+    return <MfaGate />;
+  }
 
   return <>{children}</>;
 }

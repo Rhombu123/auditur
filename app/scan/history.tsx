@@ -11,14 +11,20 @@ import {
 } from "react-native";
 
 import { VinSearchInput } from "@/components/vin-search-input";
+import { LotStatusBadge } from "@/components/lot-status-badge";
 import { fetchScannedVehicles } from "@/lib/mobile-api";
 import type { ScannedVehicle } from "@/lib/types";
 import { formatVinPrimary, formatVinSecondary } from "@/lib/vin-display";
 import { matchesVehicleSearch } from "@/lib/vin-search";
-import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
+import {
+  formatVehicleTitle,
+  getVehicleDisplay,
+  visibleVehicleColor,
+} from "@/lib/vehicle-display";
 
 function VehicleRow({ item, onPress }: { item: ScannedVehicle; onPress: () => void }) {
   const display = getVehicleDisplay(item);
+  const color = visibleVehicleColor(display.color);
   const vinSecondary = formatVinSecondary(item.vin, item.vinSuffix);
 
   return (
@@ -27,8 +33,12 @@ function VehicleRow({ item, onPress }: { item: ScannedVehicle; onPress: () => vo
       {vinSecondary ? <Text style={styles.vinMeta}>{vinSecondary}</Text> : null}
       <Text style={styles.model}>{formatVehicleTitle(display)}</Text>
       <Text style={styles.detail}>
-        {display.color} · {item.scanCount} scan{item.scanCount === 1 ? "" : "s"}
+        {color ? `${color} · ` : ""}
+        {item.scanCount} scan{item.scanCount === 1 ? "" : "s"}
       </Text>
+      <View style={styles.statusRow}>
+        <LotStatusBadge status={item.lotStatus} />
+      </View>
       <Text style={styles.meta}>
         Latest: {new Date(item.scannedAt).toLocaleString()}
       </Text>
@@ -175,5 +185,11 @@ const styles = StyleSheet.create({
   vinMeta: { color: "#71717a", fontSize: 11, marginTop: 2 },
   model: { fontSize: 16, fontWeight: "700", marginTop: 8, color: "#18181b" },
   detail: { color: "#52525b", marginTop: 4, fontSize: 13 },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
   meta: { color: "#a1a1aa", marginTop: 8, fontSize: 12 },
 });

@@ -13,7 +13,11 @@ import { VinSearchInput } from "@/components/vin-search-input";
 import { searchAllVehicles } from "@/lib/mobile-api";
 import type { VehicleSearchResult } from "@/lib/types";
 import { formatVinPrimary, formatVinSecondary } from "@/lib/vin-display";
-import { formatVehicleTitle, getVehicleDisplay } from "@/lib/vehicle-display";
+import {
+  formatVehicleTitle,
+  getVehicleDisplay,
+  visibleVehicleColor,
+} from "@/lib/vehicle-display";
 
 export default function SearchScreen() {
   const router = useRouter();
@@ -65,6 +69,7 @@ export default function SearchScreen() {
       color: item.color,
       year: null,
     });
+    const color = visibleVehicleColor(display.color);
     const vinSecondary = formatVinSecondary(item.vin, item.vinSuffix);
 
     return (
@@ -82,7 +87,7 @@ export default function SearchScreen() {
         <Text style={styles.vin}>{formatVinPrimary(item.vin, item.vinSuffix)}</Text>
         {vinSecondary ? <Text style={styles.vinMeta}>{vinSecondary}</Text> : null}
         <Text style={styles.model}>{formatVehicleTitle(display)}</Text>
-        <Text style={styles.detail}>{display.color}</Text>
+        {color ? <Text style={styles.detail}>{color}</Text> : null}
       </Pressable>
     );
   }

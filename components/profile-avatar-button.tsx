@@ -33,8 +33,8 @@ export function ProfileAvatarButton({ style }: Props) {
 
 const styles = StyleSheet.create({
   button: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.pill,
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   },
   initial: {
     color: colors.onPrimary,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "800",
   },
 });

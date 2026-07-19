@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { supabase, supabaseConfigured } from "@/lib/supabase-browser";
 
@@ -13,6 +13,7 @@ const WATCHED_TABLES = [
 
 type Options = {
   enabled?: boolean;
+  dealershipId: string | null;
   onChange: () => void;
 };
 
@@ -20,12 +21,70 @@ type Options = {
  * Subscribes to Supabase Realtime for lot data changes.
  * Enable replication for these tables in Supabase → Database → Publications.
  */
-export function useDashboardRealtime({ enabled = true, onChange }: Options) {
+export function useDashboardRealtime({
+  enabled = true,
+  dealershipId,
+  onChange,
+}: Options) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const [liveProgressEnabled, setLiveProgressEnabled] = useState(false);
 
   useEffect(() => {
-    if (!enabled || !supabaseConfigured()) return;
+    if (!enabled || !dealershipId || !supabaseConfigured()) {
+      setLiveProgressEnabled(false);
+      return;
+    }
+
+    let active = true;
+    void supabase
+      .from("dealerships")
+      .select("live_multi_user_progress_enabled")
+      .eq("id", dealershipId)
+      .single()
+      .then(({ data, error }) => {
+        if (active) {
+          setLiveProgressEnabled(
+            !error && data?.live_multi_user_progress_enabled !== false,
+          );
+        }
+      });
+
+    const settingChannel = supabase
+      .channel(`auditur-live-setting:${dealershipId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "dealerships",
+          filter: `id=eq.${dealershipId}`,
+        },
+        (payload) => {
+          const nextEnabled = payload.new.live_multi_user_progress_enabled;
+          if (typeof nextEnabled === "boolean") {
+            setLiveProgressEnabled(nextEnabled);
+            if (nextEnabled) onChangeRef.current();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(settingChannel);
+    };
+  }, [dealershipId, enabled]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !liveProgressEnabled ||
+      !dealershipId ||
+      !supabaseConfigured()
+    ) {
+      return;
+    }
 
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -36,12 +95,17 @@ export function useDashboardRealtime({ enabled = true, onChange }: Options) {
       }, 350);
     };
 
-    const channel = supabase.channel("auditur-dashboard-live");
+    const channel = supabase.channel(`auditur-dashboard-live:${dealershipId}`);
 
     for (const table of WATCHED_TABLES) {
       channel.on(
         "postgres_changes",
-        { event: "*", schema: "public", table },
+        {
+          event: "*",
+          schema: "public",
+          table,
+          filter: `dealership_id=eq.${dealershipId}`,
+        },
         scheduleRefresh,
       );
     }
@@ -63,5 +127,5 @@ export function useDashboardRealtime({ enabled = true, onChange }: Options) {
       window.removeEventListener("focus", onVisible);
       void supabase.removeChannel(channel);
     };
-  }, [enabled]);
+  }, [dealershipId, enabled, liveProgressEnabled]);
 }

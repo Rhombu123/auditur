@@ -261,23 +261,23 @@ export function parseScanPayload(
     score: number;
   } | null = null;
 
-  values.forEach((value, index) => {
-    if (!value?.trim()) return;
+  for (const [index, value] of values.entries()) {
+    if (!value?.trim()) continue;
 
     const rawValue = value.trim();
     const vin = extractVin(rawValue);
     const vinSuffix = vin ? vin.slice(-6) : extractVinSuffix(rawValue);
-    if (!vinSuffix) return;
+    if (!vinSuffix) continue;
 
     let score = vin ? 200 : rawValue.length >= 6 ? 100 : 50;
     if (vin && isValidVinCheckDigit(vin)) score += 500;
-  // Prefer decoded `data` over `raw` when both are present.
+    // Prefer decoded `data` over `raw` when both are present.
     score += Math.max(0, 40 - index * 20);
 
     if (!best || score > best.score) {
       best = { rawValue, vin, vinSuffix, score };
     }
-  });
+  }
 
   if (!best) return null;
   return {

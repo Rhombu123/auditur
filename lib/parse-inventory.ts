@@ -309,5 +309,12 @@ export function parseInventoryText(text: string): ParseResult {
     items,
     rawTextPreview: text.slice(0, 500),
     totalLines: text.split(/\r?\n/).filter(Boolean).length,
+    warnings: [],
+    detectedSource: isPriceList ? "frazer" : "unknown",
+    detectedColumns: isPriceList
+      ? ["vinSuffix", "model", "color", "daysOnLot", "miles", "year"]
+      : ["vinSuffix", "model", "color", "daysOnLot"],
+    parserName: isPriceList ? "frazer-pdf" : "generic-pdf",
+    parserVersion: "1",
   };
 }

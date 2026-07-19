@@ -2,56 +2,58 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  type AccountRecord,
-  loadSelfProfile,
-  registerAccount,
-  updateSelfProfile,
-} from "@/lib/account-ids";
 import { displayName, useAuth } from "@/lib/auth-context";
+import { useDealership } from "@/lib/dealership-context";
 import { supabase } from "@/lib/supabase-browser";
 import { tarmac } from "@/lib/tarmac-theme";
 
-function resolveProfile(user: {
-  email?: string | null;
-  user_metadata?: Record<string, unknown>;
-} | null): AccountRecord | null {
-  const existing = loadSelfProfile();
-  if (!user?.email) return existing;
-  const meta = user.user_metadata ?? {};
-  const auditurId = typeof meta.auditur_id === "string" ? meta.auditur_id : undefined;
-  const accountType =
-    meta.account_type === "owner_gm" || meta.account_type === "employee"
-      ? meta.account_type
-      : "owner_gm";
-  const fullName =
-    typeof meta.full_name === "string" && meta.full_name.trim()
-      ? meta.full_name
-      : user.email.split("@")[0] || "Member";
-  const dealershipName =
-    typeof meta.dealership_name === "string" ? meta.dealership_name : undefined;
-  return registerAccount({
-    fullName,
-    email: user.email,
-    accountType,
-    auditurId,
-    dealershipName,
-  });
-}
+type Profile = {
+  fullName: string;
+  email: string;
+  accountType: "owner_gm" | "employee";
+  auditurId: string | null;
+};
 
 export function ProfilePanel() {
   const { user, isAdminBypass } = useAuth();
-  const [profile, setProfile] = useState<AccountRecord | null>(null);
+  const { activeDealership } = useDealership();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [fullName, setFullName] = useState("");
-  const [dealershipName, setDealershipName] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const next = resolveProfile(user);
-    setProfile(next);
-    setFullName(next?.fullName ?? displayName(user));
-    setDealershipName(next?.dealershipName ?? "");
+    if (!user) return;
+    if (isAdminBypass) {
+      const next: Profile = {
+        fullName: "Admin",
+        email: user.email ?? "admin@auditur.app",
+        accountType: "owner_gm",
+        auditurId: null,
+      };
+      setProfile(next);
+      setFullName(next.fullName);
+      return;
+    }
+    void supabase
+      .from("profiles")
+      .select("full_name, account_type, auditur_id")
+      .eq("user_id", user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          setMessage(error?.message ?? "Could not load profile.");
+          return;
+        }
+        const next: Profile = {
+          fullName: data.full_name,
+          email: user.email ?? "—",
+          accountType: data.account_type,
+          auditurId: data.auditur_id,
+        };
+        setProfile(next);
+        setFullName(next.fullName);
+      });
   }, [user, isAdminBypass]);
 
   const roleLabel =
@@ -71,16 +73,18 @@ export function ProfilePanel() {
           data: {
             ...(user?.user_metadata ?? {}),
             full_name: fullName.trim(),
-            dealership_name: dealershipName.trim() || null,
           },
         });
         if (error) throw error;
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ full_name: fullName.trim() })
+          .eq("user_id", user?.id);
+        if (profileError) throw profileError;
       }
-      const next = updateSelfProfile({
-        fullName,
-        dealershipName,
-      });
-      if (next) setProfile(next);
+      setProfile((current) =>
+        current ? { ...current, fullName: fullName.trim() } : current,
+      );
       setMessage("Profile saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save profile.");
@@ -120,16 +124,10 @@ export function ProfilePanel() {
               autoComplete="name"
             />
           </label>
-          <label>
-            <span className="k">Dealership / workspace</span>
-            <input
-              className="desk-input"
-              value={dealershipName}
-              onChange={(event) => setDealershipName(event.target.value)}
-              placeholder="Your dealership name"
-              autoComplete="organization"
-            />
-          </label>
+          <div className="read-only">
+            <span className="k">Active dealership</span>
+            <strong>{activeDealership?.dealershipName ?? "Not assigned"}</strong>
+          </div>
           <div className="read-only">
             <span className="k">Email</span>
             <strong>{profile?.email || user?.email || "—"}</strong>

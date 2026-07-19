@@ -1,21 +1,47 @@
+export type ImportFileFormat = "pdf" | "csv";
+export type ImportMethod = "manual";
+
 export type InventoryItem = {
   id?: string;
+  vin?: string | null;
   vinSuffix: string;
+  stockNumber?: string | null;
+  make?: string | null;
   model: string;
   color: string;
+  sourceStatus?: string | null;
   daysOnLot: number | null;
   miles?: number | null;
   year?: number | null;
   lotStatus?: LotStatus;
 };
 
-export type LotStatus = "active" | "sold" | "auctioned";
+export type LotStatus = "active" | "sold" | "auctioned" | "removed";
 
 export type InventorySnapshot = {
   id?: string;
   fileName: string;
   uploadedAt: string;
   items: InventoryItem[];
+  fileFormat?: ImportFileFormat;
+  sourceSystem?: string;
+  importMethod?: ImportMethod;
+  parserMetadata?: Record<string, unknown>;
+  warnings?: string[];
+};
+
+export type InventoryImportSummary = {
+  uploadId?: string;
+  fileName: string;
+  uploadedAt: string;
+  itemCount: number;
+  items: InventoryItem[];
+  fileFormat: ImportFileFormat;
+  sourceSystem: string;
+  importMethod: ImportMethod;
+  detectedColumns: string[];
+  warnings: string[];
+  parserMetadata: Record<string, unknown>;
 };
 
 export type InventoryUploadLog = {
@@ -25,6 +51,14 @@ export type InventoryUploadLog = {
   itemCount: number;
   isCurrent: boolean;
   hasStoredPdf: boolean;
+  fileFormat?: ImportFileFormat;
+  sourceSystem?: string;
+  importMethod?: ImportMethod;
+  parserMetadata?: Record<string, unknown>;
+  warnings: string[];
+  archivedAt: string | null;
+  scanCount: number;
+  lastUsedAt: string | null;
 };
 
 export type ScanRecord = {
@@ -64,6 +98,9 @@ export type TodayAuditSummary = {
   scannedNotOnListCount: number;
   completionPercent: number;
   inventoryFileName: string | null;
+  fileFormat?: ImportFileFormat;
+  sourceSystem?: string;
+  warnings?: string[];
   missingToday: AuditVehicleRef[];
   scannedNotOnList: AuditVehicleRef[];
   scannedToday: AuditVehicleRef[];
@@ -116,4 +153,9 @@ export type ParseResult = {
   items: InventoryItem[];
   rawTextPreview: string;
   totalLines: number;
+  warnings?: string[];
+  detectedSource?: string;
+  detectedColumns?: string[];
+  parserName?: string;
+  parserVersion?: string;
 };

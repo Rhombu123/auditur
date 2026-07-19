@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useDealership } from "@/lib/dealership-context";
 import {
-  deleteScannedVehicleByVinSuffix,
   fetchInventoryList,
   fetchScannedVehicles,
+  markVehicleRemoved,
   updateScannedVehicle,
   type ScannedVehicleRow,
 } from "@/lib/web-api";
@@ -18,6 +19,9 @@ type Props = {
 };
 
 export function VehiclesPanel({ onChanged, searchQuery }: Props) {
+  const { activeDealership, hasPermission } = useDealership();
+  const canManageVehicles = hasPermission("manage_vehicles");
+  const canRemoveVehicles = Boolean(activeDealership);
   const [tab, setTab] = useState<"scanned" | "inventory">("scanned");
   const [scanned, setScanned] = useState<ScannedVehicleRow[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -75,16 +79,21 @@ export function VehiclesPanel({ onChanged, searchQuery }: Props) {
     }
   }
 
-  async function handleDelete(row: ScannedVehicleRow) {
-    if (!window.confirm(`Delete all scans for …${row.vinSuffix}?`)) return;
+  async function handleRemove(row: InventoryItem) {
+    if (!row.id) return;
+    if (
+      !window.confirm(
+        `Delete …${row.vinSuffix} from active inventory? Its scan history will remain in the audit trail.`,
+      )
+    ) return;
     setBusyId(row.id);
     setError(null);
     try {
-      await deleteScannedVehicleByVinSuffix(row.vinSuffix);
+      await markVehicleRemoved(row.id);
       await reload();
       await onChanged();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Delete failed.");
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Remove failed.");
     } finally {
       setBusyId(null);
     }
@@ -121,8 +130,8 @@ export function VehiclesPanel({ onChanged, searchQuery }: Props) {
               key={row.id}
               row={row}
               busy={busyId === row.id}
+              editable={canManageVehicles}
               onSave={handleSave}
-              onDelete={handleDelete}
             />
           ))}
           {filteredScanned.length === 0 ? <p className="empty">No scanned vehicles.</p> : null}
@@ -138,6 +147,16 @@ export function VehiclesPanel({ onChanged, searchQuery }: Props) {
                   {row.daysOnLot != null ? ` · ${row.daysOnLot} days` : ""}
                 </span>
               </div>
+              {canRemoveVehicles && row.id ? (
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-danger"
+                  disabled={busyId === row.id}
+                  onClick={() => void handleRemove(row)}
+                >
+                  Delete
+                </button>
+              ) : null}
             </div>
           ))}
           {filteredInventory.length === 0 ? <p className="empty">No inventory items.</p> : null}
@@ -164,13 +183,13 @@ export function VehiclesPanel({ onChanged, searchQuery }: Props) {
 function VehicleEditor({
   row,
   busy,
+  editable,
   onSave,
-  onDelete,
 }: {
   row: ScannedVehicleRow;
   busy: boolean;
+  editable: boolean;
   onSave: (row: ScannedVehicleRow, model: string, color: string) => Promise<void>;
-  onDelete: (row: ScannedVehicleRow) => Promise<void>;
 }) {
   const [model, setModel] = useState(row.model);
   const [color, setColor] = useState(row.color);
@@ -193,7 +212,7 @@ function VehicleEditor({
             className="desk-input"
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            disabled={busy}
+            disabled={busy || !editable}
           />
         </label>
         <label>
@@ -202,11 +221,11 @@ function VehicleEditor({
             className="desk-input"
             value={color}
             onChange={(e) => setColor(e.target.value)}
-            disabled={busy}
+            disabled={busy || !editable}
           />
         </label>
       </div>
-      <div className="actions">
+      {editable ? <div className="actions">
         <button
           type="button"
           className="ui-btn ui-btn-primary"
@@ -215,15 +234,7 @@ function VehicleEditor({
         >
           Save
         </button>
-        <button
-          type="button"
-          className="ui-btn ui-btn-danger"
-          disabled={busy}
-          onClick={() => void onDelete(row)}
-        >
-          Delete
-        </button>
-      </div>
+      </div> : null}
       <style jsx>{`
         .editor { display: grid; gap: 0.65rem; }
         .head { display: flex; justify-content: space-between; gap: 1rem; }

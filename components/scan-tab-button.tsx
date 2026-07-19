@@ -3,7 +3,7 @@ import { MotiView } from "moti";
 import { Pressable, StyleSheet } from "react-native";
 import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 
-import { colors, palette, shadow, spacing } from "@/constants/theme";
+import { colors, shadow, spacing } from "@/constants/theme";
 
 export function ScanTabButton({
   onPress,
@@ -19,15 +19,15 @@ export function ScanTabButton({
       accessibilityState={accessibilityState}
     >
       <MotiView
-        from={{ scale: 0.92, translateY: -4 }}
+        from={{ scale: 0.96, translateY: 0 }}
         animate={{
-          scale: focused ? 1.06 : 1,
-          translateY: focused ? -14 : -8,
+          scale: focused ? 1.04 : 1,
+          translateY: focused ? -3 : 0,
         }}
-        transition={{ type: "spring", damping: 16, stiffness: 220 }}
+        transition={{ type: "timing", duration: 220 }}
         style={[styles.fab, focused && styles.fabFocused]}
       >
-        <Ionicons name="scan" size={30} color={colors.onPrimary} />
+        <Ionicons name="scan" size={34} color={colors.onPrimary} />
       </MotiView>
     </Pressable>
   );
@@ -37,18 +37,18 @@ const styles = StyleSheet.create({
   wrap: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingBottom: spacing.sm,
+    justifyContent: "center",
+    paddingBottom: spacing.xs,
   },
   fab: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 4,
-    borderColor: palette.white,
+    borderWidth: 3,
+    borderColor: colors.tabBar,
     ...shadow.sheet,
   },
   fabFocused: {

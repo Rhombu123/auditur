@@ -165,7 +165,7 @@ export function ManualVinModal({
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 20, fontWeight: "800", color: colors.text },
+  title: { fontSize: 24, fontWeight: "900", color: colors.text },
   hint: {
     marginTop: spacing.sm,
     color: colors.textSecondary,

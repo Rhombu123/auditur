@@ -1,6 +1,7 @@
-import { StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
-import { Button } from "@/components/ui/button";
 import { colors, radius, shadow, spacing } from "@/constants/theme";
 import type { ZoneShapeKind } from "@/lib/zone-shapes";
 
@@ -11,29 +12,90 @@ type Props = {
   tool: ZoneEditorTool;
   editing: boolean;
   shapeCount: number;
+  color: string;
+  canUndo: boolean;
   onSelectTool: (tool: ZoneEditorTool) => void;
+  onUndo: () => void;
+  onColorPress: () => void;
   onSave: () => void;
   onCancel: () => void;
   onDeleteZone?: () => void;
 };
 
-function toolHint(tool: ZoneEditorTool, editing: boolean): string {
-  if (tool === "move") {
-    return "Drag the center dot to move a shape. Tap a shape to select it.";
-  }
-  if (tool === "highlight") {
-    return "Tap the map to paint extra coverage onto this section.";
-  }
-  if (tool === "eraser") {
-    return "Tap a highlighted area or shape piece to remove it.";
-  }
-  if (tool === "oval") {
-    return "Tap the map to place an oval. Drag handles to resize, center to move.";
-  }
-  if (tool === "square") {
-    return "Tap the map to place a square. Drag handles to resize, center to move.";
-  }
-  return "Tap the map to place a rectangle. Drag handles to resize, center to move.";
+const TOOLS: {
+  id: ZoneEditorTool;
+  label: string;
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  materialIcon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+}[] = [
+  { id: "highlight", label: "Paint", icon: "brush-outline" },
+  { id: "eraser", label: "Erase", materialIcon: "eraser" },
+  { id: "move", label: "Move", icon: "move-outline" },
+  { id: "rectangle", label: "Rectangle", icon: "tablet-landscape-outline" },
+  { id: "oval", label: "Oval", icon: "ellipse-outline" },
+];
+
+function IconButton({
+  icon,
+  materialIcon,
+  label,
+  selected = false,
+  disabled = false,
+  danger = false,
+  onPress,
+}: {
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  materialIcon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+  label: string;
+  selected?: boolean;
+  disabled?: boolean;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.button,
+        selected && styles.buttonSelected,
+        danger && styles.buttonDanger,
+        disabled && styles.disabled,
+        pressed && !disabled && styles.pressed,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={6}
+      pressRetentionOffset={12}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected, disabled }}
+    >
+      {materialIcon ? (
+        <MaterialCommunityIcons
+          name={materialIcon}
+          size={22}
+          color={
+            selected
+              ? colors.onPrimary
+              : danger
+                ? colors.danger
+                : colors.textSecondary
+          }
+        />
+      ) : icon ? (
+        <Ionicons
+          name={icon}
+          size={21}
+          color={
+            selected
+              ? colors.onPrimary
+              : danger
+                ? colors.danger
+                : colors.textSecondary
+          }
+        />
+      ) : null}
+    </Pressable>
+  );
 }
 
 export function MapDrawToolbar({
@@ -41,7 +103,11 @@ export function MapDrawToolbar({
   tool,
   editing,
   shapeCount,
+  color,
+  canUndo,
   onSelectTool,
+  onUndo,
+  onColorPress,
   onSave,
   onCancel,
   onDeleteZone,
@@ -50,103 +116,109 @@ export function MapDrawToolbar({
 
   return (
     <View style={styles.toolbar}>
-      <Text style={styles.step}>{editing ? "Edit lot section" : "Add lot section"}</Text>
-      <Text style={styles.hint}>{toolHint(tool, editing)}</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.tools}
+      >
+        {TOOLS.map((entry) => (
+          <IconButton
+            key={entry.id}
+            icon={entry.icon}
+            materialIcon={entry.materialIcon}
+            label={`${entry.label} tool`}
+            selected={tool === entry.id}
+            onPress={() => onSelectTool(entry.id)}
+          />
+        ))}
 
-      <View style={styles.toolRow}>
-        <Button
-          label="Rect"
-          variant={tool === "rectangle" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("rectangle")}
-        />
-        <Button
-          label="Square"
-          variant={tool === "square" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("square")}
-        />
-        <Button
-          label="Oval"
-          variant={tool === "oval" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("oval")}
-        />
-      </View>
+        <View style={styles.divider} />
 
-      <View style={styles.toolRow}>
-        <Button
-          label="Move"
-          variant={tool === "move" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("move")}
+        <IconButton
+          icon="arrow-undo-outline"
+          label="Undo last change"
+          disabled={!canUndo}
+          onPress={onUndo}
         />
-        <Button
-          label="Highlight"
-          variant={tool === "highlight" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("highlight")}
-        />
-        <Button
-          label="Eraser"
-          variant={tool === "eraser" ? "primary" : "secondary"}
-          compact
-          onPress={() => onSelectTool("eraser")}
-        />
-      </View>
 
-      <View style={styles.actions}>
-        <Button
-          label={`Save (${shapeCount})`}
-          compact
-          onPress={onSave}
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+          onPress={onColorPress}
+          hitSlop={6}
+          pressRetentionOffset={12}
+          accessibilityRole="button"
+          accessibilityLabel="Change section color"
+        >
+          <View style={[styles.colorDot, { backgroundColor: color }]} />
+        </Pressable>
+
+        <IconButton
+          icon="checkmark"
+          label="Save section"
+          selected
           disabled={shapeCount === 0}
+          onPress={onSave}
         />
+        <IconButton icon="close" label="Cancel editing" onPress={onCancel} />
+
         {editing && onDeleteZone ? (
-          <Button label="Remove zone" variant="danger" compact onPress={onDeleteZone} />
+          <>
+            <View style={styles.divider} />
+            <IconButton
+              icon="trash-outline"
+              label="Delete section"
+              danger
+              onPress={onDeleteZone}
+            />
+          </>
         ) : null}
-        <Button label="Cancel" variant="secondary" compact onPress={onCancel} />
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   toolbar: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    width: 58,
+    maxHeight: "100%",
+    paddingVertical: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
     ...shadow.sheet,
   },
-  step: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: colors.primaryDark,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    textAlign: "center",
+  tools: {
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
   },
-  hint: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.textSecondary,
-    textAlign: "center",
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
-    lineHeight: 18,
-  },
-  toolRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
+  button: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
     justifyContent: "center",
-    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: "transparent",
   },
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    justifyContent: "center",
+  buttonSelected: {
+    backgroundColor: colors.primary,
   },
+  buttonDanger: {
+    backgroundColor: colors.dangerLight,
+  },
+  colorDot: {
+    width: 25,
+    height: 25,
+    borderWidth: 2,
+    borderColor: colors.surface,
+    borderRadius: radius.pill,
+  },
+  divider: {
+    width: 30,
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 2,
+    backgroundColor: colors.border,
+  },
+  disabled: { opacity: 0.4 },
+  pressed: { opacity: 0.7, transform: [{ scale: 0.94 }] },
 });

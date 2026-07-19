@@ -7,7 +7,7 @@ import {
 } from "expo-camera";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -20,10 +20,12 @@ import {
 
 import {
   fetchLatestScanRow,
+  fetchTodayAudit,
   matchInventoryItem,
   resolveVehicleDetails,
   saveScan,
 } from "@/lib/mobile-api";
+import { playScanSuccessHaptic } from "@/lib/haptic-preferences";
 import {
   ALL_BARCODE_TYPES,
   getGuideLayout,
@@ -32,7 +34,12 @@ import {
   shouldAutoCapturePhoto,
   type ScanMode,
 } from "@/lib/barcode-scan";
-import { extractVin, formatVin, parseScanPayload } from "@/lib/vin";
+import {
+  extractVin,
+  formatVin,
+  isValidVinCheckDigit,
+  parseScanPayload,
+} from "@/lib/vin";
 import {
   ScanResultModal,
   type ScanResultSummary,
@@ -40,6 +47,7 @@ import {
 import { ManualVinModal } from "@/components/manual-vin-modal";
 import { colors, palette, spacing } from "@/constants/theme";
 import { isDevBuild } from "@/lib/dev-build";
+import { useLiveMultiUserProgress } from "@/lib/live-progress";
 import { clearMobileCache, MOBILE_CACHE_KEYS } from "@/lib/mobile-cache";
 import { ocrVinFromPhoto } from "@/lib/on-device-ocr";
 
@@ -97,6 +105,11 @@ export default function ScanCameraScreen() {
   const [scanResult, setScanResult] = useState<ScanResultSummary | null>(null);
   const [scanModalError, setScanModalError] = useState<string | null>(null);
   const [manualVinVisible, setManualVinVisible] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{
+    scanned: number;
+    expected: number;
+  } | null>(null);
+  const processingRef = useRef(false);
   const lastScanRef = useRef<{ vinSuffix: string; at: number } | null>(null);
   const lastBarcodeFeedbackRef = useRef<{ key: string; at: number } | null>(null);
   const captureInFlightRef = useRef(false);
@@ -106,8 +119,29 @@ export default function ScanCameraScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const boundaryStyle = getGuideLayout(scanMode, screenWidth, screenHeight);
 
+  const refreshScanProgress = useCallback(async () => {
+    try {
+      const audit = await fetchTodayAudit();
+      setScanProgress(
+        audit
+          ? { scanned: audit.scannedTodayCount, expected: audit.expectedCount }
+          : null,
+      );
+    } catch {
+      // Scanning stays available when progress cannot be refreshed.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshScanProgress();
+  }, [refreshScanProgress]);
+
+  useLiveMultiUserProgress({ onScanChange: refreshScanProgress });
+
   const completeScan = useCallback(
     async (parsed: { rawValue: string; vin: string | null; vinSuffix: string }) => {
+      if (processingRef.current) return;
+      processingRef.current = true;
       setProcessing(true);
       setError(null);
       setScanResult(null);
@@ -121,9 +155,25 @@ export default function ScanCameraScreen() {
           throw new Error("Location permission is required to pin scans.");
         }
 
-        const position = await Location.getCurrentPositionAsync({
+        let position = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
+        if ((position.coords.accuracy ?? Number.POSITIVE_INFINITY) > 50) {
+          const refinedPosition = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Highest,
+          });
+          if (
+            (refinedPosition.coords.accuracy ?? Number.POSITIVE_INFINITY) <
+            (position.coords.accuracy ?? Number.POSITIVE_INFINITY)
+          ) {
+            position = refinedPosition;
+          }
+        }
+        if ((position.coords.accuracy ?? Number.POSITIVE_INFINITY) > 75) {
+          throw new Error(
+            "GPS accuracy is too low to place this vehicle. Move into an open area and try again.",
+          );
+        }
 
         const formattedVin = parsed.vin
           ? formatVin(parsed.vin)
@@ -151,10 +201,12 @@ export default function ScanCameraScreen() {
           vehicle,
           inventoryMatched,
         });
+        void playScanSuccessHaptic().catch(() => undefined);
         await Promise.all([
           clearMobileCache(MOBILE_CACHE_KEYS.audit),
           clearMobileCache(MOBILE_CACHE_KEYS.vehicles),
         ]);
+        void refreshScanProgress();
 
         setScanResult({
           vin: formattedVin ?? existing?.vin ?? null,
@@ -174,12 +226,13 @@ export default function ScanCameraScreen() {
         setScanModalError(message);
         setError(message);
         setStatus("Scan failed — try again");
+        processingRef.current = false;
         setProcessing(false);
       } finally {
         setScanModalLoading(false);
       }
     },
-    [],
+    [refreshScanProgress],
   );
 
   const dismissScanModal = useCallback(() => {
@@ -187,6 +240,7 @@ export default function ScanCameraScreen() {
     setScanModalLoading(false);
     setScanResult(null);
     setScanModalError(null);
+    processingRef.current = false;
     setProcessing(false);
     setStatus(getScanModeHint(scanMode));
   }, [scanMode]);
@@ -209,6 +263,20 @@ export default function ScanCameraScreen() {
       if (processing) return false;
 
       const vinSuffix = parsed.vinSuffix.toUpperCase();
+      const needsInventoryConfirmation =
+        !parsed.vin || !isValidVinCheckDigit(parsed.vin);
+      if (needsInventoryConfirmation && source !== "manual entry") {
+        const { inventory, matchedItem } = await matchInventoryItem(vinSuffix);
+        if (!inventory) {
+          setStatus("Upload a price list first, or enter the VIN manually");
+          return false;
+        }
+        if (!matchedItem) {
+          setStatus("Code rejected — it does not match a vehicle on the price list");
+          return false;
+        }
+      }
+
       const now = Date.now();
       const last = lastScanRef.current;
       if (last && last.vinSuffix === vinSuffix && now - last.at < BARCODE_COOLDOWN_MS) {
@@ -511,6 +579,18 @@ export default function ScanCameraScreen() {
             <Ionicons name={torchOn ? "flash" : "flash-outline"} size={22} color="#fff" />
           </Pressable>
         </View>
+        {scanProgress ? (
+          <View style={styles.progressPill}>
+            <Ionicons
+              name="checkmark-circle"
+              size={17}
+              color={palette.teal200}
+            />
+            <Text style={styles.progressText}>
+              Today {scanProgress.scanned}/{scanProgress.expected}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={[styles.modeRow, { top: boundaryStyle.top - 46 }]}>
           <Pressable
@@ -561,12 +641,13 @@ export default function ScanCameraScreen() {
           <View style={styles.captureInner} />
         </Pressable>
         <Pressable
-          style={styles.secondaryIconBtn}
+          style={styles.manualBtn}
           onPress={() => setManualVinVisible(true)}
           disabled={processing}
           accessibilityLabel="Enter last 6 of VIN"
         >
           <Ionicons name="keypad-outline" size={20} color="#fff" />
+          <Text style={styles.manualBtnText}>Enter VIN</Text>
         </Pressable>
         {devBuild ? (
           <Pressable
@@ -633,6 +714,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   topBtnActive: { borderColor: palette.teal500, backgroundColor: "rgba(13,148,136,0.45)" },
+  progressPill: {
+    position: "absolute",
+    top: spacing.xl,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: "rgba(15,23,42,0.82)",
+    borderWidth: 1,
+    borderColor: "rgba(153,246,228,0.35)",
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  progressText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   modeRow: {
     position: "absolute",
     left: 16,
@@ -745,6 +841,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  manualBtn: {
+    minHeight: 48,
+    borderRadius: 24,
+    paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+  },
+  manualBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   processing: {
     marginTop: 12,
     alignSelf: "flex-start",

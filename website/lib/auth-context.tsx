@@ -19,14 +19,15 @@ import {
   isAdminEmail,
   isLocalDevHost,
 } from "@/lib/admin-access";
-import { registerAccount, type AccountType } from "@/lib/account-ids";
 import {
   clearWebSessionMarker,
   getWebSessionExpiresAt,
   isWebSessionValid,
   markWebSessionStarted,
+  touchWebSession,
 } from "@/lib/auth-session";
 import { formatAuthError, normalizeEmail } from "@/lib/email-auth";
+import { clearSensitiveWebState } from "@/lib/security-cache";
 import { assertSupabaseConfigured, supabase } from "@/lib/supabase-browser";
 
 const ADMIN_USER = {
@@ -38,6 +39,9 @@ const ADMIN_USER = {
   created_at: "",
 } as unknown as User;
 
+type AccountType = "owner_gm" | "employee";
+type SignupResult = "signed-in" | "confirmation-required";
+
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
@@ -46,12 +50,15 @@ type AuthContextValue = {
   signInWithPassword: (
     email: string,
     password: string,
+    captchaToken?: string,
   ) => Promise<"signed-in" | "admin">;
   signUpWithPassword: (
     email: string,
     password: string,
     details: { fullName: string; accountType: AccountType },
-  ) => Promise<void>;
+    captchaToken?: string,
+  ) => Promise<SignupResult>;
+  resendSignupConfirmation: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -147,15 +154,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })();
     }, 60_000);
+    const recordActivity = () => touchWebSession();
+    window.addEventListener("pointerdown", recordActivity, { passive: true });
+    window.addEventListener("keydown", recordActivity);
+    window.addEventListener("focus", recordActivity);
 
     return () => {
       subscription.subscription.unsubscribe();
       window.clearInterval(expiryTimer);
+      window.removeEventListener("pointerdown", recordActivity);
+      window.removeEventListener("keydown", recordActivity);
+      window.removeEventListener("focus", recordActivity);
     };
   }, []);
 
   const signInWithPassword = useCallback(
-    async (email: string, password: string): Promise<"signed-in" | "admin"> => {
+    async (
+      email: string,
+      password: string,
+      captchaToken?: string,
+    ): Promise<"signed-in" | "admin"> => {
       const normalized = normalizeEmail(email);
       if (!password) throw new Error("Enter your password.");
 
@@ -181,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.signInWithPassword({
         email: normalized,
         password,
+        options: { captchaToken },
       });
       if (error) {
         throw new Error(formatAuthError(error, "Could not sign in."));
@@ -194,9 +213,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     details: { fullName: string; accountType: AccountType },
+    captchaToken?: string,
   ) => {
     const normalized = normalizeEmail(email);
-    if (password.length < 8) throw new Error("Use at least 8 characters for your password.");
+    if (
+      password.length < 12 ||
+      !/[a-z]/.test(password) ||
+      !/[A-Z]/.test(password) ||
+      !/\d/.test(password) ||
+      !/[^A-Za-z0-9]/.test(password)
+    ) {
+      throw new Error(
+        "Use at least 12 characters with upper/lowercase letters, a number, and a symbol.",
+      );
+    }
     if (!details.fullName.trim()) throw new Error("Enter your full name.");
     assertSupabaseConfigured();
 
@@ -204,6 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: normalized,
       password,
       options: {
+        captchaToken,
         data: {
           full_name: details.fullName.trim(),
           account_type: details.accountType,
@@ -213,25 +244,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       throw new Error(formatAuthError(error, "Could not create account."));
     }
-    if (!data.session) {
-      throw new Error(
-        "Email confirmation is still enabled in Supabase. Turn off Confirm email to use immediate password signup.",
-      );
-    }
+    return data.session ? "signed-in" : "confirmation-required";
+  }, []);
 
-    const auditurId = data.user?.user_metadata?.auditur_id;
-    registerAccount({
-      fullName: details.fullName,
-      email: normalized,
-      accountType: details.accountType,
-      auditurId: typeof auditurId === "string" ? auditurId : undefined,
+  const resendSignupConfirmation = useCallback(async (email: string) => {
+    assertSupabaseConfigured();
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: normalizeEmail(email),
     });
+    if (error) {
+      throw new Error(formatAuthError(error, "Could not resend confirmation."));
+    }
   }, []);
 
   const signOut = useCallback(async () => {
     clearAdminBypass();
     setAdminBypass(false);
     clearWebSessionMarker();
+    clearSensitiveWebState();
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
   }, []);
@@ -244,9 +275,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdminBypass: adminBypass,
       signInWithPassword,
       signUpWithPassword,
+      resendSignupConfirmation,
       signOut,
     }),
-    [session, adminBypass, loading, signInWithPassword, signUpWithPassword, signOut],
+    [
+      session,
+      adminBypass,
+      loading,
+      signInWithPassword,
+      signUpWithPassword,
+      resendSignupConfirmation,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

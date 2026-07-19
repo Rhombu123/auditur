@@ -7,23 +7,43 @@ function startOfLocalDay(date = new Date()): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-export async function runExportAuditPdf(): Promise<{
+export async function runExportAuditPdf(input: {
+  dealershipId: string;
+  userId: string;
+  uploadId?: string;
+}): Promise<{
   status: number;
   body: Record<string, unknown> | Buffer;
   headers?: Record<string, string>;
 }> {
   const supabase = createAdminClient();
 
-  const { data: upload, error: uploadError } = await supabase
+  let uploadQuery = supabase
     .from("inventory_uploads")
-    .select("id, file_name, storage_path")
+    .select("id, file_name, storage_path, file_format")
+    .eq("dealership_id", input.dealershipId);
+  if (input.uploadId) {
+    uploadQuery = uploadQuery.eq("id", input.uploadId);
+  } else {
+    uploadQuery = uploadQuery
+      .is("archived_at", null)
     .order("uploaded_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+      .limit(1);
+  }
+  const { data: upload, error: uploadError } = await uploadQuery.maybeSingle();
 
   if (uploadError) throw uploadError;
   if (!upload) {
     return { status: 404, body: { error: "Upload a price list PDF first." } };
+  }
+  if (upload.file_format !== "pdf") {
+    return {
+      status: 422,
+      body: {
+        error:
+          "Highlighted PDF export is unavailable for CSV-backed audits. Export the source system as PDF and upload it to use highlighting.",
+      },
+    };
   }
   if (!upload.storage_path) {
     return {
@@ -38,8 +58,17 @@ export async function runExportAuditPdf(): Promise<{
   const [{ data: pdfFile, error: storageError }, { data: zones }, { data: scans }] =
     await Promise.all([
       supabase.storage.from("price-lists").download(upload.storage_path),
-      supabase.from("lot_zones").select("*").order("created_at", { ascending: true }),
-      supabase.from("vehicle_scans").select("vin_suffix, latitude, longitude, scanned_at"),
+      supabase
+        .from("lot_zones")
+        .select("*")
+        .eq("dealership_id", input.dealershipId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("vehicle_scans")
+        .select("vin_suffix, latitude, longitude, scanned_at")
+        .eq("dealership_id", input.dealershipId)
+        .eq("inventory_upload_id", upload.id)
+        .is("voided_at", null),
     ]);
 
   if (storageError || !pdfFile) {
@@ -82,14 +111,20 @@ export async function runExportAuditPdf(): Promise<{
 
   const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
   const highlighted = await buildHighlightedAuditPdf(pdfBuffer, [...highlights.values()]);
+  const highlightedBuffer = Buffer.from(highlighted);
+  if (highlightedBuffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throw new Error("Highlighted export did not produce a valid PDF.");
+  }
 
   const safeName = upload.file_name.replace(/\.pdf$/i, "");
   return {
     status: 200,
-    body: Buffer.from(highlighted),
+    body: highlightedBuffer,
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${safeName}-audit-highlighted.pdf"`,
+      "Content-Length": String(highlightedBuffer.length),
+      "Cache-Control": "private, no-store",
     },
   };
 }

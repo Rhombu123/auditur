@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrawTool, LotMapApi } from "@/components/tarmac/LotMapClient";
 import { brushStrokeToPolygon } from "@/lib/brush-polygon";
 import { hexToRgba } from "@/lib/color";
+import { useDealership } from "@/lib/dealership-context";
 import {
   type LockedLotView,
   loadLockedLotView,
@@ -50,6 +51,8 @@ export function MapPanel({
   searchQuery,
   searchRequest,
 }: Props) {
+  const { hasPermission } = useDealership();
+  const canManageMap = hasPermission("manage_map");
   const [zones, setZones] = useState<LotZone[]>([]);
   const [vehicles, setVehicles] = useState<ScannedVehicleRow[]>([]);
   const [drawing, setDrawing] = useState(false);
@@ -189,7 +192,7 @@ export function MapPanel({
     setError(null);
   }
 
-  const paintButton = (
+  const paintButton = canManageMap ? (
     <button
       type="button"
       className="ui-btn ui-btn-primary"
@@ -200,7 +203,7 @@ export function MapPanel({
     >
       Paint section
     </button>
-  );
+  ) : null;
 
   return (
     <div className="panel">
@@ -273,7 +276,7 @@ export function MapPanel({
         </div>
       )}
 
-      <div className={`desk-toolbar ${relocating ? "accent" : ""}`}>
+      {canManageMap ? <div className={`desk-toolbar ${relocating ? "accent" : ""}`}>
         {relocating ? (
           <>
             <span className="desk-hint">Frame your lot, then lock. Pan and zoom stay free until then.</span>
@@ -289,7 +292,7 @@ export function MapPanel({
             </button>
           </>
         )}
-      </div>
+      </div> : null}
 
       {error ? <p className="err">{error}</p> : null}
 
@@ -332,7 +335,7 @@ export function MapPanel({
                   {zone.polygons.length === 1 ? "" : "s"} · colored section on map
                 </span>
               </button>
-              <div className="btn-row">
+              {canManageMap ? <div className="btn-row">
                 <label className="color-field compact" title="Change color">
                   <input
                     type="color"
@@ -350,7 +353,7 @@ export function MapPanel({
                 >
                   Delete
                 </button>
-              </div>
+              </div> : null}
             </div>
           ))
         )}

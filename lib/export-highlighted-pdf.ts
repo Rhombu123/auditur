@@ -48,7 +48,8 @@ export async function buildHighlightedAuditPdf(
 
       const lineText = item.str.toUpperCase();
       for (const [suffix, highlight] of bySuffix) {
-        if (!lineText.includes(suffix)) continue;
+        const suffixIndex = lineText.indexOf(suffix);
+        if (suffixIndex < 0) continue;
 
         const x = item.transform[4] ?? 0;
         const y = item.transform[5] ?? 0;
@@ -59,17 +60,18 @@ export async function buildHighlightedAuditPdf(
 
         const fill = parseColorToRgb(highlight.fillColor);
         const stroke = parseColorToRgb(highlight.strokeColor);
-        const rowWidth = Math.max(item.width ?? suffix.length * 7, 280);
-
+        const textLength = Math.max(item.str.length, 1);
+        const itemWidth = Math.max(item.width ?? suffix.length * fontHeight * 0.55, 1);
+        const characterWidth = itemWidth / textLength;
         drawPage.drawRectangle({
-          x: Math.max(18, x - 6),
-          y: y - 3,
-          width: rowWidth + 40,
-          height: fontHeight + 6,
+          x: x + characterWidth * suffixIndex,
+          y: y - 1,
+          width: characterWidth * suffix.length,
+          height: fontHeight + 2,
           color: rgb(fill.r, fill.g, fill.b),
-          opacity: Math.min(0.55, fill.a + 0.15),
+          opacity: 0.5,
           borderColor: rgb(stroke.r, stroke.g, stroke.b),
-          borderWidth: 1.2,
+          borderWidth: 0.6,
         });
         break;
       }

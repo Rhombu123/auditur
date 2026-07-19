@@ -1,6 +1,5 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getApiDealershipId } from "@/lib/active-dealership";
 
-const CACHE_PREFIX = "auditur.mobile-cache.v1";
 const DEFAULT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEntry<T> = {
@@ -10,55 +9,40 @@ type CacheEntry<T> = {
 
 const memoryCache = new Map<string, CacheEntry<unknown>>();
 
-function storageKey(key: string): string {
-  return `${CACHE_PREFIX}:${key}`;
+function memoryKey(key: string): string | null {
+  const dealershipId = getApiDealershipId();
+  return dealershipId ? `${dealershipId}:${key}` : null;
 }
 
 export async function readMobileCache<T>(
   key: string,
   maxAgeMs = DEFAULT_MAX_AGE_MS,
 ): Promise<T | null> {
-  const inMemory = memoryCache.get(key) as CacheEntry<T> | undefined;
+  const memoryCacheKey = memoryKey(key);
+  if (!memoryCacheKey) return null;
+  const inMemory = memoryCache.get(memoryCacheKey) as CacheEntry<T> | undefined;
   if (inMemory && Date.now() - inMemory.savedAt <= maxAgeMs) {
     return inMemory.value;
   }
-
-  try {
-    const raw = await AsyncStorage.getItem(storageKey(key));
-    if (!raw) return null;
-    const entry = JSON.parse(raw) as CacheEntry<T>;
-    if (
-      !Number.isFinite(entry.savedAt) ||
-      Date.now() - entry.savedAt > maxAgeMs
-    ) {
-      await AsyncStorage.removeItem(storageKey(key));
-      memoryCache.delete(key);
-      return null;
-    }
-    memoryCache.set(key, entry);
-    return entry.value;
-  } catch {
-    return null;
-  }
+  memoryCache.delete(memoryCacheKey);
+  return null;
 }
 
 export async function writeMobileCache<T>(key: string, value: T): Promise<void> {
+  const memoryCacheKey = memoryKey(key);
+  if (!memoryCacheKey) return;
   const entry: CacheEntry<T> = { savedAt: Date.now(), value };
-  memoryCache.set(key, entry);
-  try {
-    await AsyncStorage.setItem(storageKey(key), JSON.stringify(entry));
-  } catch {
-    // Memory cache still helps during this session if disk storage is unavailable.
-  }
+  memoryCache.set(memoryCacheKey, entry);
 }
 
 export async function clearMobileCache(key: string): Promise<void> {
-  memoryCache.delete(key);
-  try {
-    await AsyncStorage.removeItem(storageKey(key));
-  } catch {
-    // Ignore storage cleanup failures.
-  }
+  const memoryCacheKey = memoryKey(key);
+  if (!memoryCacheKey) return;
+  memoryCache.delete(memoryCacheKey);
+}
+
+export function clearAllMobileCache(): void {
+  memoryCache.clear();
 }
 
 export const MOBILE_CACHE_KEYS = {

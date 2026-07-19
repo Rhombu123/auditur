@@ -76,6 +76,14 @@ function buildSeed(): DemoState {
       itemCount: upload2Items.length,
       isCurrent: true,
       hasStoredPdf: true,
+      fileFormat: "pdf",
+      sourceSystem: "frazer",
+      importMethod: "manual",
+      parserMetadata: {},
+      warnings: [],
+      archivedAt: null,
+      scanCount: 8,
+      lastUsedAt: hoursAgo(1.2),
       items: upload2Items,
     },
     {
@@ -85,6 +93,14 @@ function buildSeed(): DemoState {
       itemCount: upload1Items.length,
       isCurrent: false,
       hasStoredPdf: true,
+      fileFormat: "pdf",
+      sourceSystem: "frazer",
+      importMethod: "manual",
+      parserMetadata: {},
+      warnings: [],
+      archivedAt: hoursAgo(8),
+      scanCount: 0,
+      lastUsedAt: null,
       items: upload1Items,
     },
   ];
@@ -285,18 +301,23 @@ export function getDemoDashboard(uploadId?: string | null): DashboardData {
   const inventory = upload?.items ?? [];
   const fileName = upload?.fileName ?? null;
 
-  const audit = buildTodayAuditSummary({
-    inventoryFileName: fileName,
-    inventoryItems: inventory,
-    scansToday: state.scans.map((row) => ({
-      vinSuffix: row.vinSuffix,
-      model: row.model,
-      color: row.color,
-      scannedAt: row.scannedAt,
-      scannerEmail: row.scannerEmail,
-      matched: row.matched,
-    })),
-  });
+  const audit = {
+    ...buildTodayAuditSummary({
+      inventoryFileName: fileName,
+      inventoryItems: inventory,
+      scansToday: state.scans.map((row) => ({
+        vinSuffix: row.vinSuffix,
+        model: row.model,
+        color: row.color,
+        scannedAt: row.scannedAt,
+        scannerEmail: row.scannerEmail,
+        matched: row.matched,
+      })),
+    }),
+    fileFormat: upload?.fileFormat,
+    sourceSystem: upload?.sourceSystem,
+    warnings: upload?.warnings,
+  };
 
   const recentScans: ScanFeedItem[] = [...state.scans]
     .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt))
@@ -349,6 +370,14 @@ export function getDemoDashboard(uploadId?: string | null): DashboardData {
       itemCount: u.itemCount,
       isCurrent: u.id === upload?.id,
       hasStoredPdf: u.hasStoredPdf,
+      fileFormat: u.fileFormat,
+      sourceSystem: u.sourceSystem,
+      importMethod: u.importMethod,
+      parserMetadata: u.parserMetadata,
+      warnings: u.warnings,
+      archivedAt: u.archivedAt,
+      scanCount: u.scanCount,
+      lastUsedAt: u.lastUsedAt,
     })),
     zoneStats,
     totalPinnedVehicles: new Set(state.scans.map((s) => s.vinSuffix.toUpperCase())).size,
@@ -458,7 +487,10 @@ export function demoDeleteUpload(uploadId: string): void {
   writeState(state);
 }
 
-export function demoUploadPdf(fileName: string): void {
+export function demoUploadAuditFile(
+  fileName: string,
+  fileFormat: "pdf" | "csv",
+): number {
   const state = readState();
   const template = state.uploads[0]?.items ?? [];
   const id = `upload-${Date.now()}`;
@@ -469,16 +501,20 @@ export function demoUploadPdf(fileName: string): void {
     uploadedAt: new Date().toISOString(),
     itemCount: template.length,
     isCurrent: true,
-    hasStoredPdf: true,
+    hasStoredPdf: fileFormat === "pdf",
+    fileFormat,
+    sourceSystem: "demo",
+    importMethod: "manual",
+    parserMetadata: {},
+    warnings: [],
+    archivedAt: null,
+    scanCount: 0,
+    lastUsedAt: null,
     items: template,
   });
   state.selectedUploadId = id;
   writeState(state);
-}
-
-export function demoExportPdfBlob(): Blob {
-  const text = "Auditur demo highlighted audit PDF — replace with a live export when connected.";
-  return new Blob([text], { type: "application/pdf" });
+  return template.length;
 }
 
 export { LOT as DEMO_LOT_CENTER };

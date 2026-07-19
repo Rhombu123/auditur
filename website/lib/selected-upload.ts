@@ -1,17 +1,18 @@
 /** Shared selection of which price-list upload drives the dashboard/audit. */
 
-const STORAGE_KEY = "auditur.selectedUploadId";
+const STORAGE_KEY = "auditur.selectedUploadId.v2";
 
-export function loadSelectedUploadId(): string | null {
+export function loadSelectedUploadId(dealershipId: string): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(STORAGE_KEY);
+  return window.localStorage.getItem(`${STORAGE_KEY}:${dealershipId}`);
 }
 
-export function saveSelectedUploadId(id: string | null): void {
+export function saveSelectedUploadId(dealershipId: string, id: string | null): void {
   if (typeof window === "undefined") return;
+  const key = `${STORAGE_KEY}:${dealershipId}`;
   if (!id) {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(key);
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, id);
+  window.localStorage.setItem(key, id);
 }
